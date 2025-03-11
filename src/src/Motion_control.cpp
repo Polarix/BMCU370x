@@ -119,6 +119,7 @@ public:
     }
     void run(float now_speed)
     {
+        uint16_t device_type = get_now_BambuBus_device_type();
         uint64_t time_now = get_time64();
         static uint64_t time_last = 0;
         float speed_set = 0;
@@ -143,18 +144,35 @@ public:
             speed_set = 50;
         }
         if (motion == filament_motion_slow_send) // slowly send
-        {
-            speed_set = 3;
+        {   
+            if (device_type == BambuBus_AMS)
+            {
+                speed_set = 5;
+            } else { // amslite 加速
+                speed_set = 3;
+            }
         }
         if (motion == filament_motion_pull) // pull
         {
-            speed_set = -20;
+            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 退料速度 反转50.
+            {
+                speed_set = -30;
+            } else { // amslite 退料减速 控制距离
+                speed_set = -20;
+            }
         }
 
         if (motion == filament_motion_less_pressure) // less pressure
         {
-            speed_set = 10;
+            // 缓冲时压力不会太小 默认：10
+            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 送料速度
+            {
+                speed_set = 15; // ams 辅助送料速度增加
+            } else { // amslite 保持慢速辅助送料
+                speed_set = 10;
+            }
         }
+
         if (motion == filament_motion_over_pressure) // over pressure
         {
             speed_set = -10;
@@ -336,43 +354,42 @@ enum filament_now_position_enum
 int filament_now_position[4];
 bool wait = false;
 
-bool motor_motion_filamnet_pull_back_to_online_key()
+static uint64_t motor_reverse_start_time[4] = {0}; // 记录电机反转开始时间
+bool Prepare_For_filament_Pull_Back(int OUT_TIME)
 {
     bool wait = false;
     for (int i = 0; i < 4; i++)
     {
         switch (filament_now_position[i])
         {
-        case filament_pulling_back:
-            RGB_set(i, 0xFF, 0x00, 0xFF);
-            if (ONLINE_key_stu_raw[i] == 0)
-                MOTOR_CONTROL[i].set_motion(-1, 100);
-            else
-            {
-                MOTOR_CONTROL[i].set_motion(-2, 100);
-                if (ONLINE_key_stu[i] != 0)
-                    filament_now_position[i] = filament_redetect;
-            }
-            wait = true;
-            break;
-        case filament_redetect:
-            RGB_set(i, 0xFF, 0xFF, 0x00);
-            if (ONLINE_key_stu[i] != 0)
-                MOTOR_CONTROL[i].set_motion(1, 100);
-            else
-            {
-                MOTOR_CONTROL[i].set_motion(0, 100);
-                filament_now_position[i] = filament_idle;
-                set_filament_motion(i, idle);
-            }
-            wait = true;
-            break;
-        default:
-            break;
+            case filament_pulling_back:
+                RGB_set(i, 0xFF, 0x00, 0xFF); // 设置RGB灯为紫色
+                uint64_t current_time = get_time64();
+                if (motor_reverse_start_time[i] == 0) // 如果反转开始时间未记录，则记录当前时间
+                {
+                    motor_reverse_start_time[i] = current_time;
+                }
+                uint64_t time = current_time - motor_reverse_start_time[i];
+
+                if (time > OUT_TIME) { // 到达停止时间
+                    MOTOR_CONTROL[i].set_motion(-2, 100); // 停止电机
+                    MOTOR_CONTROL[i].set_motion(0, 100); // 设置无阻力模式
+                    filament_now_position[i] = filament_idle; // 设置当前位置为空闲
+                    set_filament_motion(i, idle); // 设置当前耗材状态为空闲
+                    motor_reverse_start_time[i] = 0; // 重置反转开始时间
+                } else {
+                    MOTOR_CONTROL[i].set_motion(-1, 100); // 驱动电机退料
+                }
+                wait = true;
+                break;
+            // 默认情况下，不执行任何操作
+            default:
+                break;
         }
     }
     return wait;
 }
+
 void motor_motion_switch()
 {
     int num = get_now_filament_num();
@@ -385,15 +402,19 @@ void motor_motion_switch()
         {
         case need_send_out:
             RGB_set(num, 0x00, 0xFF, 0x00);
+            // 设置当前位置为正在退料。
             filament_now_position[num] = filament_sending_out;
+            // 取消现在执行
+            /*
             if (device_type == BambuBus_AMS_lite)
             {
                 MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
             }
             else if (device_type == BambuBus_AMS)
-            {
+            { 
                 MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
             }
+            */
             break;
         case need_pull_back:
             RGB_set(num, 0xFF, 0x00, 0xFF);
@@ -433,19 +454,28 @@ void motor_motion_switch()
 // 根据AMS模拟器的信息，来调度电机
 void motor_motion_run(int error)
 {
+    // 退料时间
+    int A1X_OUT_TIME = 2500;
+    int P1S_OUT_TIME = 3500;
 
     uint16_t device_type = get_now_BambuBus_device_type();
     if (!error)
     {
+        // 根据设备类型执行不同的电机控制逻辑
         if (device_type == BambuBus_AMS_lite)
         {
-            motor_motion_switch();
+            // 对于AMS_lite设备 使用退料时间1
+            if (!Prepare_For_filament_Pull_Back(A1X_OUT_TIME)) // 如果 wait 返回 false，不用等待。
+            {
+            motor_motion_switch(); // 完成退料
+            }
         }
         else if (device_type == BambuBus_AMS)
         {
-            if (!motor_motion_filamnet_pull_back_to_online_key())
+            // 对于AMS设备 使用退料时间0
+            if (!Prepare_For_filament_Pull_Back(P1S_OUT_TIME)) // 如果 wait 返回 false，不用等待。
             {
-                motor_motion_switch();
+                motor_motion_switch(); // 完成退料
             }
         }
     }
