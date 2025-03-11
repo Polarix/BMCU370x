@@ -1,4 +1,8 @@
 # BMCU370x
+## 这是修改版，以下为原项目的简介搬运，项目链接：[4061N/BMCU](https://gitee.com/at_4061N/BMCU)。
+## 本项目相关链接：
+** 此项目wiki [BMCU370x Wiki](https://bmcu.wanzii.cn/doc/build/bmcu370x.html)
+** 此项目引脚开源 [BMCU370x oshwhub.com](https://oshwhub.com/xingcc1/bmcu-370x)  
 # BMCU
 
 #### 介绍
@@ -16,7 +20,8 @@ BMCU打包文件目前发布在群内，或可以从[https://oshwhub.com/bamboo-
 
  **3.  安装及使用教程参见wiki(由群友@丸子 牵头搭建，社区共建中)** 
 
-地址：[https://bmcu.wanzii.cn/](https://bmcu.wanzii.cn/)
+地址：[https://bmcu.wanzii.cn/](https://bmcu.wanzii.cn/) 
+
 
 #### 软件架构
 主要文件：
