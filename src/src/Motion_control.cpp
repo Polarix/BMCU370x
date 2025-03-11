@@ -6,7 +6,29 @@ uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
 
 uint8_t PULL_key_stu[4] = {0, 0, 0, 0};
 uint8_t PULL_key_change[4] = {0, 0, 0, 0};
-#define PWM_lim 1000
+#define PWM_lim 900
+
+struct alignas(4) Motion_control_save_struct
+{
+    int Motion_control_dir[4];
+    int check = 0x40614061;
+} Motion_control_data_save;
+
+#define Motion_control_save_flash_addr ((uint32_t)0x0800E000)
+bool Motion_control_read()
+{
+    Motion_control_save_struct *ptr = (Motion_control_save_struct *)(Motion_control_save_flash_addr);
+    if (ptr->check == 0x40614061)
+    {
+        memcpy(&Motion_control_data_save, ptr, sizeof(Motion_control_save_struct));
+        return true;
+    }
+    return false;
+}
+void Motion_control_save()
+{
+    Flash_saves(&Motion_control_data_save, sizeof(Motion_control_save_struct), Motion_control_save_flash_addr);
+}
 
 class MOTOR_PID
 {
@@ -68,6 +90,7 @@ public:
     uint64_t motor_stop_time = 0;
     MOTOR_PID PID;
     float pwm_zero = 500;
+    float dir = 0;
     int x1 = 0;
     _MOTOR_CONTROL(int _CHx)
     {
@@ -84,7 +107,11 @@ public:
     {
         uint64_t time_now = get_time64();
         motor_stop_time = time_now + over_time;
-        motion = _motion;
+        if (motion != _motion)
+        {
+            motion = _motion;
+            PID.clear();
+        }
     }
     int get_motion()
     {
@@ -102,7 +129,12 @@ public:
         if (motion == filament_motion_no_resistance)
         {
             PID.clear();
-
+            Motion_control_set_PWM(CHx, 0);
+            return;
+        }
+        if (motion == filament_motion_stop) // just stop
+        {
+            PID.clear();
             Motion_control_set_PWM(CHx, 0);
             return;
         }
@@ -112,18 +144,13 @@ public:
         }
         if (motion == filament_motion_slow_send) // slowly send
         {
-            speed_set = 10;
+            speed_set = 3;
         }
         if (motion == filament_motion_pull) // pull
         {
-            speed_set = -50;
+            speed_set = -20;
         }
-        if (motion == filament_motion_stop) // just stop
-        {
-            PID.clear();
-            Motion_control_set_PWM(CHx, 0);
-            return;
-        }
+
         if (motion == filament_motion_less_pressure) // less pressure
         {
             speed_set = 10;
@@ -133,7 +160,7 @@ public:
             speed_set = -10;
         }
         x1 = speed_set;
-        float x = PID.caculate(now_speed - speed_set, (float)(time_now - time_last) / 1000);
+        float x = dir * PID.caculate(now_speed - speed_set, (float)(time_now - time_last) / 1000);
 
         if (x > 1)
             x += pwm_zero;
@@ -222,6 +249,11 @@ void Motion_control_set_PWM(uint8_t CHx, int PWM)
     else if (PWM < 0)
     {
         set2 = -PWM;
+    }
+    else // PWM==0
+    {
+        set1 = 1000;
+        set2 = 1000;
     }
     switch (CHx)
     {
@@ -344,23 +376,23 @@ bool motor_motion_filamnet_pull_back_to_online_key()
 void motor_motion_switch()
 {
     int num = get_now_filament_num();
+    uint16_t device_type = get_now_BambuBus_device_type();
     if (num == 0xFF)
         return;
     if (get_filament_online(num))
     {
-
         switch (get_filament_motion(num))
         {
         case need_send_out:
             RGB_set(num, 0x00, 0xFF, 0x00);
             filament_now_position[num] = filament_sending_out;
-            if (PULL_key_stu[num] == 0)
+            if (device_type == BambuBus_AMS_lite)
             {
                 MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
             }
-            else
+            else if (device_type == BambuBus_AMS)
             {
-                MOTOR_CONTROL[num].set_motion(filament_motion_slow_send,100);
+                MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
             }
             break;
         case need_pull_back:
@@ -370,12 +402,22 @@ void motor_motion_switch()
             break;
         case on_use:
         {
-            filament_now_position[num] = filament_using;
-            if (PULL_key_stu[num] == 0)
+            static uint64_t time_end = 0;
+            uint64_t time_now = get_time64();
+            if (filament_now_position[num] == filament_sending_out)
             {
-                MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20);
+                filament_now_position[num] = filament_using;
+                time_end = time_now + 3000;
             }
-
+            if (filament_now_position[num] == filament_using)
+            {
+                if (PULL_key_stu[num] == 0)
+                    MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20);
+                else if (time_now < time_end)
+                    MOTOR_CONTROL[num].set_motion(filament_motion_slow_send, 20);
+                else
+                    MOTOR_CONTROL[num].set_motion(filament_motion_stop, 20);
+            }
             RGB_set(num, 0xFF, 0xFF, 0xFF);
             break;
         }
@@ -387,6 +429,8 @@ void motor_motion_switch()
         }
     }
 }
+
+// 根据AMS模拟器的信息，来调度电机
 void motor_motion_run(int error)
 {
 
@@ -427,7 +471,7 @@ void Motion_control_run(int error)
     AS5600_distance_updata();
     for (int i = 0; i < 4; i++)
     {
-        if ((ONLINE_key_stu[i] == 0) && (MC_AS5600.online[i] == true) && (MC_AS5600.magnet_stu[i] != -1))
+        if ((ONLINE_key_stu[i] == 0))
         {
             set_filament_online(i, true);
         }
@@ -464,6 +508,14 @@ void Motion_control_run(int error)
             RGB_set(i, 0x00, 0x00, 0x37);
 
     motor_motion_run(error);
+
+    for (int i = 0; i < 4; i++)
+    {
+        if ((MC_AS5600.online[i] == false) || (MC_AS5600.magnet_stu[i] == -1)) // AS5600 error
+        {
+            RGB_set(i, 0xFF, 0x00, 0x00);
+        }
+    }
 }
 
 void MC_PWM_init()
@@ -567,6 +619,101 @@ void MOTOR_get_pwm_zero()
     }
 }
 
+int M5600_angle_dis(int16_t angle1, int16_t angle2)
+{
+
+    int cir_E = angle1 - angle2;
+    if ((angle1 > 3072) && (angle2 <= 1024))
+    {
+        cir_E = -4096;
+    }
+    else if ((angle1 <= 1024) && (angle2 > 3072))
+    {
+        cir_E = 4096;
+    }
+    return cir_E;
+}
+void MOTOR_get_dir()
+{
+    int dir[4] = {0, 0, 0, 0};
+    bool done = false;
+    bool have_data = Motion_control_read();
+    if (!have_data)
+    {
+        for (int index = 0; index < 4; index++)
+        {
+            Motion_control_data_save.Motion_control_dir[index] = 0;
+        }
+    }
+    MC_AS5600.updata_angle(); // read as5600 once
+
+    int16_t last_angle[4];
+    for (int index = 0; index < 4; index++)
+    {
+        last_angle[index] = MC_AS5600.raw_angle[index];                  // init angle
+        dir[index] = Motion_control_data_save.Motion_control_dir[index]; // init dir data
+    }
+    bool need_test = false;
+    for (int index = 0; index < 4; index++)
+    {
+        if ((MC_AS5600.online[index] == true)) // online
+        {
+            if (Motion_control_data_save.Motion_control_dir[index] == 0) // new motor
+            {
+                Motion_control_set_PWM(index, 1000); // need test, run
+                need_test = true;
+            }
+        }
+        else
+        {
+            dir[index] = 0; // offline, clear dir data
+        }
+    }
+    if (need_test == false)
+        return;
+    int i = 0;
+    while (done == false)
+    {
+        if (i++ > 300) // over 3000ms
+        {
+            for (int index = 0; index < 4; index++)
+            {
+                Motion_control_set_PWM(index, 0); // stop
+                Motion_control_data_save.Motion_control_dir[index] = -1;
+            }
+            break;
+        }
+        done = true;
+        MC_AS5600.updata_angle();
+        for (int index = 0; index < 4; index++)
+        {
+            if ((MC_AS5600.online[index] == true) && (Motion_control_data_save.Motion_control_dir[index] == 0)) // new motor
+            {
+                int angle_dis = M5600_angle_dis(MC_AS5600.raw_angle[index], last_angle[index]);
+                if (abs(angle_dis) > 50) // if moved
+                {
+                    Motion_control_set_PWM(index, 0); // stop
+                    if (angle_dis < 0)
+                    {
+                        dir[index] = 1;
+                    }
+                    else
+                    {
+                        dir[index] = -1;
+                    }
+                }
+                else
+                {
+                    done = false;
+                }
+            }
+        }
+        delay(10);
+    }
+    for (int index = 0; index < 4; index++)
+        Motion_control_data_save.Motion_control_dir[index] = dir[index];
+    Motion_control_save();
+}
 void MOTOR_init()
 {
 
@@ -578,10 +725,12 @@ void MOTOR_init()
         as5600_distance_save[i] = MC_AS5600.raw_angle[i];
     }
     // MOTOR_get_pwm_zero();
+    MOTOR_get_dir();
     for (int index = 0; index < 4; index++)
     {
         Motion_control_set_PWM(index, 0);
         MOTOR_CONTROL[index].set_pwm_zero(500);
+        MOTOR_CONTROL[index].dir = Motion_control_data_save.Motion_control_dir[index];
     }
 }
 
