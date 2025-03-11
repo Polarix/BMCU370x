@@ -1,8 +1,8 @@
 # BMCU370x
 ## 这是修改版，以下为原项目的简介搬运，项目链接：[4061N/BMCU](https://gitee.com/at_4061N/BMCU)。
 ## 本项目相关链接：
-** 此项目wiki [BMCU370x Wiki](https://bmcu.wanzii.cn/doc/build/bmcu370x.html)
-** 此项目引脚开源 [BMCU370x oshwhub.com](https://oshwhub.com/xingcc1/bmcu-370x)  
+  **1. 此项目WiKi [BMCU370x Wiki](https://bmcu.wanzii.cn/doc/build/bmcu370x.html)  
+  **2. 此项目硬件 [BMCU370x oshwhub.com](https://oshwhub.com/xingcc1/bmcu-370x)    
 # BMCU
 
 #### 介绍
