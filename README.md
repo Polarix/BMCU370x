@@ -1,15 +1,18 @@
-# BMCU370x
-## 这是修改版，以下为原项目的简介搬运，项目链接：[4061N/BMCU](https://gitee.com/at_4061N/BMCU)。
-## 本项目相关链接：
-  **1. 此项目WiKi [BMCU370x Wiki](https://bmcu.wanzii.cn/doc/build/bmcu370x.html)  **
-  **2. 此项目硬件 [BMCU370x oshwhub.com](https://oshwhub.com/xingcc1/bmcu-370x)   ** 
+# BMCU370x 项目简介
+这是修改版，以下为原项目的简介搬运，项目链接：[4061N/BMCU](https://gitee.com/at_4061N/BMCU)。
 
-## 定制固件：
-  **1 克隆仓库，并使用Vscode打开src文件夹，使用PlatformIO插件进行编译。**
-  **2 文件src\Motion_control.cpp**
-  **2.1 退料时间：查看457-459行代码，修改为自定义退料时间。**
-  **2.2 马达速度：查看126-174行代码，修改对应状态的速度，正数为送出，负数为回退。**
+## 本项目相关链接
+* 1. 此项目WiKi [BMCU370x Wiki](https://bmcu.wanzii.cn/doc/build/bmcu370x.html)
+* 2. 此项目硬件 [BMCU370x oshwhub.com](https://oshwhub.com/xingcc1/bmcu-370x)
 
+## 定制固件
+克隆仓库，并使用Vscode打开`src`文件夹，使用PlatformIO插件进行编译。
+
+### 修改退料时间
+查看`src/Motion_control.cpp`文件中的第457-459行代码，修改为自定义退料时间。
+
+### 修改马达速度
+查看`src/Motion_control.cpp`文件中的第126-174行代码，修改对应状态的速度，正数为送出，负数为回退。
 # BMCU
 
 #### 介绍
