@@ -72,17 +72,16 @@ void loop()
         uint16_t device_type = get_now_BambuBus_device_type();
         if (stu != BambuBus_package_NONE) // have data/offline
         {
+            motion_can_run = true;
             if (stu == BambuBus_package_ERROR) // offline
             {
                 error = -1;
                 SYS_RGB.set_RGB(0x30, 0x00, 0x00, 0);
                 RGB_update();
-                motion_can_run = true;
             }
             else // have data
             {
                 error = 0;
-                motion_can_run = true;
                 if (stu == BambuBus_package_heartbeat)
                 {
                     if(device_type==BambuBus_AMS_lite)

@@ -76,7 +76,11 @@ void reset_filament_meters(int num)
 void add_filament_meters(int num, float meters)
 {
     if (num < 16)
-        data_save.filament[num / 4][num % 4].meters += meters;
+    {
+        int AMS = num / 4, filament = num % 4;
+        if ((data_save.filament[AMS][filament].motion_set == on_use)||(data_save.filament[AMS][filament].motion_set == need_pull_back))
+            data_save.filament[AMS][filament].meters += meters;
+    }
 }
 float get_filament_meters(int num)
 {
@@ -522,10 +526,11 @@ uint8_t get_filament_left_char(uint8_t AMS_num)
         if (data_save.filament[AMS_num][i].statu == online)
         {
             data |= (0x1 << i) << i; // 1<<(2*i)
-            if (data_save.filament[AMS_num][i].motion_set != idle)
-            {
-                data |= (0x2 << i) << i; // 2<<(2*i)
-            }
+            if (BambuBus_address == BambuBus_AMS)
+                if (data_save.filament[AMS_num][i].motion_set != idle)
+                {
+                    data |= (0x2 << i) << i; // 2<<(2*i)
+                }
         }
     }
     return data;
@@ -540,15 +545,15 @@ void set_motion_res_datas(unsigned char *set_buf, unsigned char AMS_num, unsigne
     {
         meters = data_save.filament[AMS_num][read_num].meters;
         pressure = data_save.filament[AMS_num][read_num].pressure;
-        if ((data_save.filament[AMS_num][read_num].motion_set == idle))//idle
+        if ((data_save.filament[AMS_num][read_num].motion_set == idle)|| (data_save.filament[AMS_num][read_num].motion_set == need_pull_back)) // idle or pull back
         {
             motion_flag = 0x00;
         }
-        else if ((data_save.filament[AMS_num][read_num].motion_set == need_send_out) || (data_save.filament[AMS_num][read_num].motion_set == need_pull_back))//moving
+        else if ((data_save.filament[AMS_num][read_num].motion_set == need_send_out) ) // sending
         {
             motion_flag = 0x02;
         }
-        else if ((data_save.filament[AMS_num][read_num].motion_set == on_use))//on use
+        else if ((data_save.filament[AMS_num][read_num].motion_set == on_use)) // on use
         {
             motion_flag = 0x04;
         }
@@ -556,17 +561,17 @@ void set_motion_res_datas(unsigned char *set_buf, unsigned char AMS_num, unsigne
     set_buf[0] = AMS_num;
     set_buf[1] = 0x00;
     set_buf[2] = motion_flag;
-    set_buf[3] = read_num; //filament number or maybe using number
+    set_buf[3] = read_num; // filament number or maybe using number
     memcpy(set_buf + 4, &meters, sizeof(float));
     memcpy(set_buf + 8, &pressure, sizeof(uint16_t));
     set_buf[24] = get_filament_left_char(AMS_num);
 }
 bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char statu_flags, unsigned char fliment_motion_flag)
 {
-    static uint64_t time_last=0;
-    uint64_t time_now=get_time64();
-    uint64_t time_used=time_now-time_last;
-    time_last=time_now;
+    static uint64_t time_last = 0;
+    uint64_t time_now = get_time64();
+    uint64_t time_used = time_now - time_last;
+    time_last = time_now;
     if (BambuBus_address == BambuBus_AMS) // AMS08
     {
         if (read_num < 4)
@@ -591,12 +596,12 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
                 if (data_save.filament[AMS_num][read_num].motion_set == need_send_out)
                 {
                     data_save.filament[AMS_num][read_num].motion_set = on_use;
-                    data_save.filament[AMS_num][read_num].meters_virtual_count=0;
+                    data_save.filament[AMS_num][read_num].meters_virtual_count = 0;
                 }
-                else if(data_save.filament[AMS_num][read_num].meters_virtual_count<10000)//10s virtual data
+                else if (data_save.filament[AMS_num][read_num].meters_virtual_count < 10000) // 10s virtual data
                 {
-                    data_save.filament[AMS_num][read_num].meters+=(float)time_used/300000;//3.333mm/s
-                    data_save.filament[AMS_num][read_num].meters_virtual_count+=time_used;
+                    data_save.filament[AMS_num][read_num].meters += (float)time_used / 300000; // 3.333mm/s
+                    data_save.filament[AMS_num][read_num].meters_virtual_count += time_used;
                 }
                 data_save.filament[AMS_num][read_num].pressure = 0x2B00;
             }
@@ -654,12 +659,12 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
                 if (data_save.filament[AMS_num][read_num].motion_set == need_send_out)
                 {
                     data_save.filament[AMS_num][read_num].motion_set = on_use;
-                    data_save.filament[AMS_num][read_num].meters_virtual_count=0;
+                    data_save.filament[AMS_num][read_num].meters_virtual_count = 0;
                 }
-                else if(data_save.filament[AMS_num][read_num].meters_virtual_count<10000)//10s virtual data
+                else if (data_save.filament[AMS_num][read_num].meters_virtual_count < 10000) // 10s virtual data
                 {
-                    data_save.filament[AMS_num][read_num].meters+=(float)time_used/300000;//3.333mm/s
-                    data_save.filament[AMS_num][read_num].meters_virtual_count+=time_used;
+                    data_save.filament[AMS_num][read_num].meters += (float)time_used / 300000; // 3.333mm/s
+                    data_save.filament[AMS_num][read_num].meters_virtual_count += time_used;
                 }
                 /*if (data_save.filament[AMS_num][read_num].motion_set == need_pull_back)
                     data_save.filament[AMS_num][read_num].motion_set = idle;*/

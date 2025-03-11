@@ -58,11 +58,7 @@ enum filament_motion_enum
     filament_motion_no_resistance = 0,
     filament_motion_less_pressure = 100,
     filament_motion_over_pressure = 101,
-
-    filament_motion_slow_pull = 3,
-    filament_motion_slow_send_send = -3,
 };
-
 
 class _MOTOR_CONTROL
 {
@@ -96,7 +92,6 @@ public:
     }
     void run(float now_speed)
     {
-        uint16_t device_type = get_now_BambuBus_device_type();
         uint64_t time_now = get_time64();
         static uint64_t time_last = 0;
         float speed_set = 0;
@@ -115,34 +110,13 @@ public:
         {
             speed_set = 50;
         }
-
         if (motion == filament_motion_slow_send) // slowly send
-        {   
-            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 缓冲时，速度不会太慢。
-            {
-                speed_set = 35;
-            } else { // amslite 加速
-                speed_set = 15;
-            }
-        }
-
-        if (motion == filament_motion_slow_send_send ) 
         {
-            speed_set = 15;
+            speed_set = 10;
         }
-        if(motion == filament_motion_slow_pull)
-        {
-            speed_set = -15;
-        }
-
         if (motion == filament_motion_pull) // pull
         {
-            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 退料速度 反转50.
-            {
-                speed_set = -50;
-            } else { // amslite 退料减速 控制距离
-                speed_set = -35;
-            }
+            speed_set = -50;
         }
         if (motion == filament_motion_stop) // just stop
         {
@@ -152,15 +126,8 @@ public:
         }
         if (motion == filament_motion_less_pressure) // less pressure
         {
-            // 缓冲时压力不会太小 默认：10
-            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 送料速度
-            {
-                speed_set = 15;
-            } else { // amslite 退料减速 控制距离
-                speed_set = 10;
-            }
+            speed_set = 10;
         }
-
         if (motion == filament_motion_over_pressure) // over pressure
         {
             speed_set = -10;
@@ -277,86 +244,52 @@ void Motion_control_set_PWM(uint8_t CHx, int PWM)
     }
 }
 
-// 定义圆周率常量，用于后续的距离计算
 #define AS5600_PI 3.1415926535897932384626433832795
-
-// 定义速度滤波系数，用于平滑速度计算（未使用）
 #define speed_filter_k 100
-
-// 存储每个通道的当前速度（单位：mm/s）
 float speed_as5600[4] = {0, 0, 0, 0};
-
-// 存储每个通道上次记录的角度位置
 int32_t as5600_distance_save[4] = {0, 0, 0, 0};
-
-// 更新AS5600传感器的距离信息，并计算速度
 void AS5600_distance_updata()
 {
-    // 静态变量保存上次的时间戳，确保时间差不为零
     static uint64_t time_last = 0;
     uint64_t time_now;
     float T;
-
-    // 确保time_now大于time_last，避免时间差为零的情况
     do
     {
         time_now = get_time64();
-    } while (time_now <= time_last); // T != 0
-
-    // 计算时间差（单位：ms）
-    T = (float)(time_now - time_last) / 1000.0;
-
-    // 更新编码器角度信息
+    } while (time_now <= time_last); // T!=0
+    T = (float)(time_now - time_last);
     MC_AS5600.updata_angle();
-
-    // 遍历所有通道（假设最多4个）
     for (int i = 0; i < 4; i++)
     {
-        // 如果当前通道的编码器不在线，则重置距离和速度为0
-        if (!MC_AS5600.online[i])
+        if ((MC_AS5600.online[i] == false))
         {
             as5600_distance_save[i] = 0;
             speed_as5600[i] = 0;
             continue;
         }
 
-        // 初始化圈数补偿值
         int32_t cir_E = 0;
-
-        // 获取上次和当前的角度位置
         int32_t last_distance = as5600_distance_save[i];
         int32_t now_distance = MC_AS5600.raw_angle[i];
-
-        // 处理角度跨越0度的情况
+        float distance_E;
         if ((now_distance > 3072) && (last_distance <= 1024))
         {
-            cir_E = -4096; // 从负半圈到正半圈
+            cir_E = -4096;
         }
         else if ((now_distance <= 1024) && (last_distance > 3072))
         {
-            cir_E = 4096; // 从正半圈到负半圈
+            cir_E = 4096;
         }
 
-        // 计算实际移动的距离（单位：mm），D=7.5mm为编码器轮子直径
-        float distance_E = (float)(now_distance - last_distance + cir_E) * AS5600_PI * 7.5 / 4096;
-
-        // 更新上次记录的角度位置
+        distance_E = (float)(now_distance - last_distance + cir_E) * AS5600_PI * 7.5 / 4096; // D=7.5mm
         as5600_distance_save[i] = now_distance;
 
-        // 计算当前速度（单位：mm/s）
-        float speedx = distance_E / T;
-
-        // 更新速度数组
-        speed_as5600[i] = speedx;
-
-        // 如果当前耗材不是需要送出状态，则更新累计耗材长度
+        float speedx = distance_E / T * 1000;
+        // T = speed_filter_k / (T + speed_filter_k);
+        speed_as5600[i] = speedx; // * (1 - T) + speed_as5600[i] * T; // mm/s
         if (get_filament_motion(i) != need_send_out)
-        {
             add_filament_meters(i, distance_E / 1000);
-        }
     }
-
-    // 更新上次的时间戳
     time_last = time_now;
 }
 
@@ -371,275 +304,167 @@ enum filament_now_position_enum
 int filament_now_position[4];
 bool wait = false;
 
-// set_motion （模式.结束时间）
-// -1 = 退出 1抽入 0停止
-// 退料时间
-#define A1X_OUT_TIME 2500;
-#define P1S_OUT_TIME 3500;
-static uint64_t motor_reverse_start_time[4] = {0}; // 记录电机反转开始时间
-
-bool Prepare_For_filament_Pull_Back(int type)
+bool motor_motion_filamnet_pull_back_to_online_key()
 {
     bool wait = false;
-    int OUT_TIME = 0;
-    if (type == 1)
-    {
-        OUT_TIME = A1X_OUT_TIME;
-    } else if (type == 0) {
-        OUT_TIME = P1S_OUT_TIME;
-    }
-
     for (int i = 0; i < 4; i++)
     {
         switch (filament_now_position[i])
         {
-            case filament_pulling_back:
-                RGB_set(i, 0xFF, 0x00, 0xFF); // 设置RGB灯为紫色
-                uint64_t current_time = get_time64();
-                if (motor_reverse_start_time[i] == 0) // 如果反转开始时间未记录，则记录当前时间
-                {
-                    motor_reverse_start_time[i] = current_time;
-                }
-                uint64_t time = current_time - motor_reverse_start_time[i];
-
-                if (time > OUT_TIME) { // 到达停止时间
-                    MOTOR_CONTROL[i].set_motion(-2, 100); // 停止电机
-                    MOTOR_CONTROL[i].set_motion(0, 100); // 设置无阻力模式
-                    filament_now_position[i] = filament_idle; // 设置当前位置为空闲
-                    set_filament_motion(i, idle); // 设置当前耗材状态为空闲
-                    motor_reverse_start_time[i] = 0; // 重置反转开始时间
-                } else {
-                    MOTOR_CONTROL[i].set_motion(-1, 100); // 驱动电机退料
-                }
-                wait = true;
-                break;
-            // 默认情况下，不执行任何操作
-            default:
-                break;
+        case filament_pulling_back:
+            RGB_set(i, 0xFF, 0x00, 0xFF);
+            if (ONLINE_key_stu_raw[i] == 0)
+                MOTOR_CONTROL[i].set_motion(-1, 100);
+            else
+            {
+                MOTOR_CONTROL[i].set_motion(-2, 100);
+                if (ONLINE_key_stu[i] != 0)
+                    filament_now_position[i] = filament_redetect;
+            }
+            wait = true;
+            break;
+        case filament_redetect:
+            RGB_set(i, 0xFF, 0xFF, 0x00);
+            if (ONLINE_key_stu[i] != 0)
+                MOTOR_CONTROL[i].set_motion(1, 100);
+            else
+            {
+                MOTOR_CONTROL[i].set_motion(0, 100);
+                filament_now_position[i] = filament_idle;
+                set_filament_motion(i, idle);
+            }
+            wait = true;
+            break;
+        default:
+            break;
         }
     }
     return wait;
 }
-
-// motor_motion_switch函数根据当前耗材的状态切换电机的动作模式
 void motor_motion_switch()
 {
-    // 获取当前使用的耗材编号
     int num = get_now_filament_num();
-    
-    // 如果没有有效的耗材编号（0xFF表示无效），直接返回
     if (num == 0xFF)
         return;
-
-    // 检查当前耗材是否在线
     if (get_filament_online(num))
     {
-        // 根据当前耗材的运动状态执行不同的动作
+
         switch (get_filament_motion(num))
         {
-            case need_send_out: // 需要送出耗材
-                RGB_set(num, 0x00, 0xFF, 0x00); // 设置LED为绿色
-                filament_now_position[num] = filament_sending_out; // 更新耗材位置状态为正在送出
-                
-                // 根据拔出键状态设置不同的送出速度
-                if (PULL_key_stu[num] == 0) // 如果拔出键未按下
-                {
-                    MOTOR_CONTROL[num].set_motion(filament_motion_send, 100); // 快速送出
-                }
-                else // 如果拔出键已按下
-                {
-                    MOTOR_CONTROL[num].set_motion(filament_motion_slow_send, 100); // 缓慢送出
-                }
-                break;
-
-            case need_pull_back: // 需要退回耗材
-                RGB_set(num, 0xFF, 0x00, 0xFF); // 设置LED为紫色
-                filament_now_position[num] = filament_pulling_back; // 更新耗材位置状态为正在退回
-                // MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100); // 退回耗材
-                break;
-
-            case on_use: // 耗材正在使用
+        case need_send_out:
+            RGB_set(num, 0x00, 0xFF, 0x00);
+            filament_now_position[num] = filament_sending_out;
+            if (PULL_key_stu[num] == 0)
             {
-                filament_now_position[num] = filament_using; // 更新耗材位置状态为正在使用
-                
-                // 如果拔出键未按下，设置为低压力模式
-                if (PULL_key_stu[num] == 0)
-                {
-                    MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20); // 设置低压力模式
-                }
-
-                RGB_set(num, 0xFF, 0xFF, 0xFF); // 设置LED为白色
-                break;
+                MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+            }
+            else
+            {
+                MOTOR_CONTROL[num].set_motion(filament_motion_slow_send,100);
+            }
+            break;
+        case need_pull_back:
+            RGB_set(num, 0xFF, 0x00, 0xFF);
+            filament_now_position[num] = filament_pulling_back;
+            MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
+            break;
+        case on_use:
+        {
+            filament_now_position[num] = filament_using;
+            if (PULL_key_stu[num] == 0)
+            {
+                MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20);
             }
 
-            case idle: // 空闲状态
-                filament_now_position[num] = filament_idle; // 更新耗材位置状态为空闲
-                MOTOR_CONTROL[num].set_motion(filament_motion_no_resistance, 100); // 设置为无阻力模式
-                RGB_set(num, 0x00, 0x00, 0x37); // 设置LED为淡蓝色
-                break;
+            RGB_set(num, 0xFF, 0xFF, 0xFF);
+            break;
+        }
+        case idle:
+            filament_now_position[num] = filament_idle;
+            MOTOR_CONTROL[num].set_motion(filament_motion_no_resistance, 100);
+            RGB_set(num, 0x00, 0x00, 0x37);
+            break;
         }
     }
 }
-
-// motor_motion_run函数根据错误状态和设备类型控制电机动作
 void motor_motion_run(int error)
 {
+
     uint16_t device_type = get_now_BambuBus_device_type();
-    // 如果没有错误发生
     if (!error)
     {
-        // 根据设备类型执行不同的电机控制逻辑
         if (device_type == BambuBus_AMS_lite)
         {
-            // 对于AMS_lite设备，直接调用motor_motion_switch切换电机状态
-            if (!Prepare_For_filament_Pull_Back(1)) // 如果 wait 返回 false，不用等待。
-            {
-            motor_motion_switch(); // 完成退料
-            }
+            motor_motion_switch();
         }
         else if (device_type == BambuBus_AMS)
         {
-            // 对于AMS设备，特殊退料处理
-            if (!Prepare_For_filament_Pull_Back(0)) // 如果 wait 返回 false，不用等待。
+            if (!motor_motion_filamnet_pull_back_to_online_key())
             {
-                motor_motion_switch(); // 完成退料
+                motor_motion_switch();
             }
         }
     }
     else
     {
-        // 如果有错误发生，停止所有电机的动作
         for (int i = 0; i < 4; i++)
             MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
     }
 
-    // 遍历所有电机通道
     for (int i = 0; i < 4; i++)
     {
-        // 如果耗材不在在线状态，则停止该通道的电机动作
         if (!get_filament_online(i))
             MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
-        
-        // 根据当前速度调整电机PWM输出
         MOTOR_CONTROL[i].run(speed_as5600[i]);
     }
 }
 
-// Motion_control_run函数负责整体运动控制流程，包括按键读取、距离更新及电机运行
 void Motion_control_run(int error)
 {
-    // 读取拔出按键状态
     MC_PULL_key_read();
-    
-    // 读取在线检测按键状态
     MC_ONLINE_key_read();
 
-    // 更新AS5600传感器的距离信息
     AS5600_distance_updata();
-    
-    // 遍历所有通道更新耗材在线状态
     for (int i = 0; i < 4; i++)
     {
-        // 如果耗材在线 且AS5600传感器在线 且磁铁状态正常，则设置耗材为在线
         if ((ONLINE_key_stu[i] == 0) && (MC_AS5600.online[i] == true) && (MC_AS5600.magnet_stu[i] != -1))
         {
             set_filament_online(i, true);
         }
-        // 否则，如果不是处于重新检测 或 退料状态，则设置耗材为离线
         else if ((filament_now_position[i] != filament_redetect) && (filament_now_position[i] != filament_pulling_back))
         {
             set_filament_online(i, false);
         }
     }
-    
-    // 如果存在错误
     if (error)
     {
-        // 设置所有耗材为离线状态，并根据不同条件设置LED颜色
         for (int i = 0; i < 4; i++)
         {
             set_filament_online(i, false);
-            // 缓冲未触发时
             if (PULL_key_stu[i] == 0)
             {
-                RGB_set(i, 0xFF, 0x00, 0x00); // 红色
-                
-                // 如果检测到耗材，则设置为紫色
+                RGB_set(i, 0xFF, 0x00, 0x00);
                 if (ONLINE_key_stu[i] == 0)
                 {
                     RGB_set(i, 0xFF, 0x00, 0xFF);
                 }
             }
-            // 如果检测到耗材并且触发缓冲，则设置为蓝色
             else if (ONLINE_key_stu[i] == 0)
             {
                 RGB_set(i, 0x00, 0x00, 0xFF);
             }
-            // 其他情况设置为黑色
             else
             {
                 RGB_set(i, 0x00, 0x00, 0x00);
             }
-            /*
-            static unsigned long error_start_time[4] = {0}; // 记录错误开始时间
-            static unsigned long loop_start_time[4] = {0};   // 记录循环开始时间
-            static int loop_state[4] = {0};                 // 记录当前循环状态
-
-            unsigned long current_time = millis();
-            // 离线10秒后进入debug电机模式。
-            if (error_start_time[i] == 0)
-            {
-                error_start_time[i] = current_time;
-            }
-            if (current_time - error_start_time[i] >= 10000) // 10秒
-            {
-            // 如果循环开始时间未记录，则记录当前时间
-            if (loop_start_time[i] == 0)
-            {
-                loop_start_time[i] = current_time;
-            }
-
-            // 计算当前时间与循环开始时间的差值
-            unsigned long loop_time = current_time - loop_start_time[i];
-
-            // 根据循环时间执行不同的电机操作
-            if (loop_time < 3000) // 3秒正转
-            {
-                MOTOR_CONTROL[i].set_motion(filament_motion_send, 100);
-                loop_state[i] = 1;
-            }
-            else if (loop_time >= 3000 && loop_time < 6000) // 3秒停止
-            {
-                MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
-                loop_state[i] = 2;
-            }
-            else if (loop_time >= 6000 && loop_time < 9000) // 3秒反转
-            {
-                MOTOR_CONTROL[i].set_motion(filament_motion_pull, 100);
-                loop_state[i] = 3;
-            }
-            else if (loop_time >= 9000 && loop_time < 12000) // 3秒停止
-            {
-                MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
-                loop_state[i] = 4;
-            }
-            else
-            {
-                loop_start_time[i] = current_time; // 重置循环开始时间
-            }
-        } */
         }
     }
     else
-    {
-        // 如果无错误，则将所有LED设置为淡蓝色
         for (int i = 0; i < 4; i++)
             RGB_set(i, 0x00, 0x00, 0x37);
-    }
-    // 最后调用motor_motion_run函数执行具体的电机控制逻辑
+
     motor_motion_run(error);
 }
-
 
 void MC_PWM_init()
 {
