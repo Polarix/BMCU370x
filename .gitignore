@@ -1,4 +1,4 @@
-
-/src/.history
+.pio
+.vscode
+/.history
 *.lnk
-/src/.vscode
