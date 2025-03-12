@@ -355,7 +355,7 @@ int filament_now_position[4];
 bool wait = false;
 
 static uint64_t motor_reverse_start_time[4] = {0}; // 记录电机反转开始时间
-bool Prepare_For_filament_Pull_Back(int OUT_TIME)
+bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
 {
     bool wait = false;
     for (int i = 0; i < 4; i++)
@@ -402,10 +402,8 @@ void motor_motion_switch()
         {
         case need_send_out:
             RGB_set(num, 0x00, 0xFF, 0x00);
-            // 设置当前位置为正在退料。
+            // 设置当前通道为正在送料。
             filament_now_position[num] = filament_sending_out;
-            // 取消现在执行
-            /*
             if (device_type == BambuBus_AMS_lite)
             {
                 MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
@@ -414,12 +412,15 @@ void motor_motion_switch()
             { 
                 MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
             }
-            */
             break;
         case need_pull_back:
             RGB_set(num, 0xFF, 0x00, 0xFF);
+            // 设置当前通道为正在退料。
             filament_now_position[num] = filament_pulling_back;
+            // 取消现在执行
+            /*
             MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
+            */
             break;
         case on_use:
         {
