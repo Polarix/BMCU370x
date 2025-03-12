@@ -9,10 +9,10 @@
 克隆仓库，并使用Vscode打开`src`文件夹，使用PlatformIO插件进行编译。
 
 ### 修改退料时间
-查看`src/Motion_control.cpp`文件中的第457-459行代码，修改为自定义退料时间。
+查看`src/Motion_control.cpp`文件中的第463-464行代码，修改为自定义退料时间。
 
 ### 修改马达速度
-查看`src/Motion_control.cpp`文件中的第126-174行代码，修改对应状态的速度，正数为送出，负数为回退。
+查看`src/Motion_control.cpp`文件中的第142-184行代码，修改对应状态的速度，正数为送出，负数为回退。
 # BMCU
 
 #### 介绍
