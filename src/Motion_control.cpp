@@ -143,7 +143,7 @@ public:
         {
             if (device_type == BambuBus_AMS)
             {
-                speed_set = 60; // AMS加速
+                speed_set = 55; // AMS加速
             } else { // amslite 正常速度
                 speed_set = 50;
             }
@@ -152,7 +152,7 @@ public:
         {   
             if (device_type == BambuBus_AMS)
             {
-                speed_set = 5;
+                speed_set = 3;
             } else { // amslite 加速
                 speed_set = 3;
             }
@@ -172,7 +172,7 @@ public:
             // 缓冲时压力不会太小 默认：10
             if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 送料速度
             {
-                speed_set = 15; // ams 辅助送料速度增加
+                speed_set = 10; // ams 辅助送料速度增加
             } else { // amslite 保持慢速辅助送料
                 speed_set = 10;
             }
@@ -429,18 +429,17 @@ void motor_motion_switch()
                 {    
                     MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20); // 缓冲状态。
                 } else { // 使用中，但是没有触发缓冲，通常是刚进料的时候。
-                    if (device_type == BambuBus_AMS_lite) // 判断类型
-                    {   // 如果是 A1系列，触发温柔机制。
+                    //if (device_type == BambuBus_AMS_lite) // 判断类型
+                    //{   // 如果是 A1系列，触发温柔机制。
                         if (time_now < time_end) // 如果是刚进料且在前三秒，使用慢速送料，避免没被工具头咬合。
                         {
                             MOTOR_CONTROL[num].set_motion(filament_motion_slow_send, 20); // 缓慢
                         } else { // 已经超过3秒，如果未触发缓冲则紧急刹车。
                             MOTOR_CONTROL[num].set_motion(filament_motion_stop, 20);
                         }
-                    } else { // 如果P1系列，AMS正常送料.
-                        MOTOR_CONTROL[num].set_motion(filament_motion_send, 20);
-
-                }
+                    //} else { // 如果P1系列，AMS 已经完成送料.
+                    // 不执行
+               // }
             }
         }
             RGB_set(num, 0xFF, 0xFF, 0xFF); // 设置RGB灯为白色，进入使用状态。
@@ -458,8 +457,8 @@ void motor_motion_switch()
 // 根据AMS模拟器的信息，来调度电机
 void motor_motion_run(int error)
 {   // 退料时间
-    uint64_t A1X_OUT_TIME = 2600;
-    uint64_t P1X_OUT_TIME = 4000;
+    uint64_t A1X_OUT_TIME = 2000;
+    uint64_t P1X_OUT_TIME = 3500;
     uint64_t OUT_TIME = 8000;
     uint16_t device_type = get_now_BambuBus_device_type();
 
@@ -468,7 +467,7 @@ void motor_motion_run(int error)
         if (device_type == BambuBus_AMS_lite) {
             OUT_TIME = A1X_OUT_TIME;
         } else if (device_type == BambuBus_AMS) {
-            //OUT_TIME = P1X_OUT_TIME;
+            OUT_TIME = P1X_OUT_TIME;
         } // 执行
         if (!Prepare_For_filament_Pull_Back(OUT_TIME)) { // 如果 wait 返回 false，不用等待。
             motor_motion_switch(); // 完成退料
