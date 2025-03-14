@@ -74,7 +74,8 @@ public:
 enum filament_motion_enum
 {
     filament_motion_send = 1,
-    filament_motion_slow_send = 2,
+    filament_motion_send_pressure,
+    filament_motion_slow_send,
     filament_motion_pull = -1,
     filament_motion_stop = -2,
     filament_motion_no_resistance = 0,
@@ -148,36 +149,29 @@ public:
                 speed_set = 50;
             }
         }
+        if (motion == filament_motion_send_pressure)
+        {
+            speed_set = 20;
+        }
         if (motion == filament_motion_slow_send) // slowly send
-        {   
-            if (device_type == BambuBus_AMS)
-            {
-                speed_set = 3;
-            } else { // amslite 加速
-                speed_set = 3;
-            }
+        {
+            speed_set = 3;
         }
         if (motion == filament_motion_pull) // pull
         {
-            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 退料速度 反转50.
-            {
-                speed_set = -50;
-            } else { // amslite 退料减速 控制距离
-                speed_set = -35;
-            }
+            speed_set = -50;
         }
 
         if (motion == filament_motion_less_pressure) // less pressure
         {
             // 缓冲时压力不会太小 默认：10
-            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 送料速度
+            if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 辅助送料速度
             {
-                speed_set = 10; // ams 辅助送料速度增加
+                speed_set = 10; // Ams 辅助送料速度 阻力大可改成 10-15
             } else { // amslite 保持慢速辅助送料
                 speed_set = 10;
             }
         }
-
         if (motion == filament_motion_over_pressure) // over pressure
         {
             speed_set = -10;
@@ -342,8 +336,7 @@ void AS5600_distance_updata()
         float speedx = distance_E / T * 1000;
         // T = speed_filter_k / (T + speed_filter_k);
         speed_as5600[i] = speedx; // * (1 - T) + speed_as5600[i] * T; // mm/s
-        if (get_filament_motion(i) != need_send_out)
-            add_filament_meters(i, distance_E / 1000);
+        add_filament_meters(i, distance_E / 1000);
     }
     time_last = time_now;
 }
@@ -401,17 +394,23 @@ void motor_motion_switch()
         {
         case need_send_out:
             RGB_set(num, 0x00, 0xFF, 0x00);
-            // 设置当前通道为正在送料。
             filament_now_position[num] = filament_sending_out;
-            MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+            if (device_type == BambuBus_AMS_lite)
+            {
+                if (PULL_key_stu[num] == 0)
+                    MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+                else
+                    MOTOR_CONTROL[num].set_motion(filament_motion_send_pressure, 100);
+            }
+            else if (device_type == BambuBus_AMS)
+            {
+                MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+            }
             break;
         case need_pull_back:
             RGB_set(num, 0xFF, 0x00, 0xFF);
-            // 设置当前通道为正在退料。
             filament_now_position[num] = filament_pulling_back;
-
             MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
-
             break;
         case on_use:
         {
@@ -420,28 +419,18 @@ void motor_motion_switch()
             if (filament_now_position[num] == filament_sending_out)
             {
                 filament_now_position[num] = filament_using;
+
                 time_end = time_now + 3000;
             }
-            // 已经进入使用状态,即打印机已经检测到耗材丝。
-            if (filament_now_position[num] == filament_using)
+            else if (filament_now_position[num] == filament_using) // 已经进入使用状态,即打印机已经检测到耗材丝。
             {
                 if (PULL_key_stu[num] == 0) // 如果触发缓冲，则缓冲状态。
-                {    
                     MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20); // 缓冲状态。
-                } else { // 使用中，但是没有触发缓冲，通常是刚进料的时候。
-                    //if (device_type == BambuBus_AMS_lite) // 判断类型
-                    //{   // 如果是 A1系列，触发温柔机制。
-                        if (time_now < time_end) // 如果是刚进料且在前三秒，使用慢速送料，避免没被工具头咬合。
-                        {
-                            MOTOR_CONTROL[num].set_motion(filament_motion_slow_send, 20); // 缓慢
-                        } else { // 已经超过3秒，如果未触发缓冲则紧急刹车。
-                            MOTOR_CONTROL[num].set_motion(filament_motion_stop, 20);
-                        }
-                    //} else { // 如果P1系列，AMS 已经完成送料.
-                    // 不执行
-               // }
+                else if (time_now < time_end) // 如果是刚进料且在前三秒，使用慢速送料，避免没被工具头咬合。
+                    MOTOR_CONTROL[num].set_motion(filament_motion_slow_send, 20); // 缓慢
+                else // 已经超过3秒，如果未触发缓冲则紧急刹车。
+                    MOTOR_CONTROL[num].set_motion(filament_motion_stop, 20);
             }
-        }
             RGB_set(num, 0xFF, 0xFF, 0xFF); // 设置RGB灯为白色，进入使用状态。
             break;
         }
@@ -477,7 +466,8 @@ void motor_motion_run(int error)
             MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
     }
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4; i++)
+    {
         if (!get_filament_online(i))
             MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
         MOTOR_CONTROL[i].run(speed_as5600[i]);
@@ -674,46 +664,50 @@ void MOTOR_get_dir()
         last_angle[index] = MC_AS5600.raw_angle[index];                  // init angle
         dir[index] = Motion_control_data_save.Motion_control_dir[index]; // init dir data
     }
-    bool need_test = false;
+    bool need_test = false; // 是否需要检测
+    bool need_save = false; // 是否需要更新状态
     for (int index = 0; index < 4; index++)
     {
-        if ((MC_AS5600.online[index] == true)) // online
+        if ((MC_AS5600.online[index] == true)) // 有5600，说明通道在线
         {
-            if (Motion_control_data_save.Motion_control_dir[index] == 0) // new motor
+            if (Motion_control_data_save.Motion_control_dir[index] == 0) // 之前测试结果为0，需要测试
             {
-                Motion_control_set_PWM(index, 1000); // need test, run
-                need_test = true;
+                Motion_control_set_PWM(index, 1000); // 打开电机
+                need_test = true;                    // 设置需要测试
+                need_save = true;                    // 有状态更新
             }
         }
         else
         {
-            dir[index] = 0; // offline, clear dir data
+            dir[index] = 0;   // 通道不在线，清空它的方向数据
+            need_save = true; // 有状态更新
         }
     }
-    if (need_test == false)
-        return;
     int i = 0;
     while (done == false)
     {
-        if (i++ > 300) // over 3000ms
+        done = true;
+        
+        delay(10);//间隔10ms检测一次
+        MC_AS5600.updata_angle();//更新角度数据
+
+        if (i++ > 200)//超过2s无响应
         {
             for (int index = 0; index < 4; index++)
             {
-                Motion_control_set_PWM(index, 0); // stop
-                Motion_control_data_save.Motion_control_dir[index] = -1;
+                Motion_control_set_PWM(index, 0); // 停止
+                Motion_control_data_save.Motion_control_dir[index] = 0;//方向设为0
             }
-            break;
+            break;//跳出循环
         }
-        done = true;
-        MC_AS5600.updata_angle();
-        for (int index = 0; index < 4; index++)
+        for (int index = 0; index < 4; index++)//遍历
         {
-            if ((MC_AS5600.online[index] == true) && (Motion_control_data_save.Motion_control_dir[index] == 0)) // new motor
+            if ((MC_AS5600.online[index] == true) && (Motion_control_data_save.Motion_control_dir[index] == 0)) // 对于新的通道
             {
                 int angle_dis = M5600_angle_dis(MC_AS5600.raw_angle[index], last_angle[index]);
-                if (abs(angle_dis) > 50) // if moved
+                if (abs(angle_dis) > 163) // 移动超过1mm
                 {
-                    Motion_control_set_PWM(index, 0); // stop
+                    Motion_control_set_PWM(index, 0); // 停止
                     if (angle_dis < 0)
                     {
                         dir[index] = 1;
@@ -725,15 +719,20 @@ void MOTOR_get_dir()
                 }
                 else
                 {
-                    done = false;
+                    done = false;//没有移动。继续等待
                 }
             }
         }
-        delay(10);
+        
     }
-    for (int index = 0; index < 4; index++)
-        Motion_control_data_save.Motion_control_dir[index] = dir[index];
-    Motion_control_save();
+    for (int index = 0; index < 4; index++)//遍历四个电机
+    {
+        Motion_control_data_save.Motion_control_dir[index] = dir[index];//数据复制
+    }
+    if (need_save)//如果需要保存数据
+    {
+        Motion_control_save();//数据保存
+    }
 }
 void MOTOR_init()
 {
