@@ -4,7 +4,7 @@
 CRC16 crc_16;
 CRC8 crc_8;
 
-uint8_t BambuBus_data_buf[1000];
+uint8_t s_usart_rev_buf[1000];
 int BambuBus_have_data = 0;
 uint16_t BambuBus_address = 0;
 uint8_t AMS_num = 1;
@@ -56,7 +56,7 @@ void Bambubus_set_need_to_save()
 }
 void Bambubus_save()
 {
-    Flash_saves(&data_save, sizeof(data_save), use_flash_addr);
+    on_chip_flash_save(&data_save, sizeof(data_save), use_flash_addr);
 }
 
 int get_now_filament_num()
@@ -89,9 +89,11 @@ float get_filament_meters(int num)
     else
         return 0;
 }
+
 void set_filament_online(int num, bool if_online)
 {
-    if (num < 16)
+    if(num < 16)
+    {
         if (if_online)
         {
             data_save.filament[num / 4][num % 4].statu = online;
@@ -100,19 +102,21 @@ void set_filament_online(int num, bool if_online)
         {
             data_save.filament[num / 4][num % 4].statu = offline;
         }
+    }
 }
 
 bool get_filament_online(int num)
 {
+    bool result = false;
+
     if (num < 16)
-        if (data_save.filament[num / 4][num % 4].statu == offline)
+    {
+        if (data_save.filament[num / 4][num % 4].statu != offline)
         {
-            return false;
+            result = true;
         }
-        else
-        {
-            return true;
-        }
+    }
+    return result;
 }
 void set_filament_motion(int num, _filament_motion_state_set motion)
 {
@@ -141,21 +145,25 @@ bool BambuBus_if_on_print()
     }
     return on_print;
 }
-uint8_t buf_X[1000];
+
+uint8_t s_usart_rev_dump[1000]; /* 串口接收完成后的内容会被转储到这里 */
+
 CRC8 _RX_IRQ_crcx(0x39, 0x66, 0x00, false, false);
-void inline RX_IRQ(unsigned char _RX_IRQ_data)
+
+/* 串口中断服务函数 */
+void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
 {
     static int _index = 0;
     static int length = 500;
     static uint8_t data_length_index;
     static uint8_t data_CRC8_index;
-    unsigned char data = _RX_IRQ_data;
+    unsigned char data = rev_byte;
 
     if (_index == 0)
     {
         if (data == 0x3D)
         {
-            BambuBus_data_buf[0] = 0x3D;
+            s_usart_rev_buf[0] = 0x3D;
             _RX_IRQ_crcx.restart();
             _RX_IRQ_crcx.add(0x3D);
             data_length_index = 4;
@@ -166,7 +174,7 @@ void inline RX_IRQ(unsigned char _RX_IRQ_data)
     }
     else
     {
-        BambuBus_data_buf[_index] = data;
+        s_usart_rev_buf[_index] = data;
         if (_index == 1)
         {
             if (data & 0x80)
@@ -200,7 +208,7 @@ void inline RX_IRQ(unsigned char _RX_IRQ_data)
         if (_index >= length)
         {
             _index = 0;
-            memcpy(buf_X, BambuBus_data_buf, length);
+            memcpy(s_usart_rev_dump, s_usart_rev_buf, length);
             BambuBus_have_data = length;
         }
         if (_index >= 999)
@@ -288,7 +296,7 @@ void USART1_IRQHandler(void)
 {
     if (USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)
     {
-        RX_IRQ(USART_ReceiveData(USART1));
+        banbu_bus_byte_receive_handler(USART_ReceiveData(USART1));
     }
     if (USART_GetITStatus(USART1, USART_IT_TC) != RESET)
     {
@@ -421,7 +429,7 @@ void package_send_with_crc(uint8_t *data, int data_length)
     send_uart(data, data_length);
     if (need_debug)
     {
-        DEBUG_num(data, data_length);
+        DEBUG_NUM_OUT(data, data_length);
         need_debug = false;
     }
 }
@@ -1140,41 +1148,41 @@ package_type BambuBus_run()
         BambuBus_have_data = 0;
         need_debug = false;
         delay(1);
-        stu = get_packge_type(buf_X, data_length); // have_data
+        stu = get_packge_type(s_usart_rev_dump, data_length); // have_data
         switch (stu)
         {
         case BambuBus_package_heartbeat:
             time_set = timex + 1000;
             break;
         case BambuBus_package_filament_motion_short:
-            send_for_motion_short(buf_X, data_length);
+            send_for_motion_short(s_usart_rev_dump, data_length);
             break;
         case BambuBus_package_filament_motion_long:
-            DEBUG_num(buf_X, data_length);
-            send_for_motion_long(buf_X, data_length);
+            DEBUG_NUM_OUT(s_usart_rev_dump, data_length);
+            send_for_motion_long(s_usart_rev_dump, data_length);
             time_motion = timex + 1000;
             break;
         case BambuBus_package_online_detect:
 
-            send_for_online_detect(buf_X, data_length);
+            send_for_online_detect(s_usart_rev_dump, data_length);
             break;
         case BambuBus_package_REQx6:
             // send_for_REQx6(buf_X, data_length);
             break;
         case BambuBus_long_package_MC_online:
-            send_for_long_packge_MC_online(buf_X, data_length);
+            send_for_long_packge_MC_online(s_usart_rev_dump, data_length);
             break;
         case BambuBus_longe_package_filament:
-            send_for_long_packge_filament(buf_X, data_length);
+            send_for_long_packge_filament(s_usart_rev_dump, data_length);
             break;
         case BambuBus_long_package_version:
-            send_for_long_packge_version(buf_X, data_length);
+            send_for_long_packge_version(s_usart_rev_dump, data_length);
             break;
         case BambuBus_package_NFC_detect:
             // send_for_NFC_detect(buf_X, data_length);
             break;
         case BambuBus_package_set_filament:
-            send_for_set_filament(buf_X, data_length);
+            send_for_set_filament(s_usart_rev_dump, data_length);
             break;
         default:
             break;

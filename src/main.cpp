@@ -44,7 +44,7 @@ void setup()
     RGB_update();
     
     BambuBus_init();
-    DEBUG_init();
+    DEBUG_INIT();
     Motion_control_init();
     delay(1);
 }

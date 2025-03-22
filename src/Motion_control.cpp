@@ -27,7 +27,7 @@ bool Motion_control_read()
 }
 void Motion_control_save()
 {
-    Flash_saves(&Motion_control_data_save, sizeof(Motion_control_save_struct), Motion_control_save_flash_addr);
+    on_chip_flash_save(&Motion_control_data_save, sizeof(Motion_control_save_struct), Motion_control_save_flash_addr);
 }
 
 class MOTOR_PID
