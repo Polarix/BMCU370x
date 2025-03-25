@@ -3,6 +3,7 @@
 #include "main.h"
 
 #define Bambubus_version 5
+#define BAMBU_BUS_FILAMENT_NUM 4
 
 #ifdef __cplusplus
 extern "C"
@@ -22,6 +23,7 @@ extern "C"
         on_use,
         idle
     };
+
     enum package_type
     {
         BambuBus_package_ERROR = -1,
@@ -39,15 +41,17 @@ extern "C"
         BambuBus_package_ETC,
         __BambuBus_package_packge_type_size
     };
-    enum BambuBus_device_type
+
+    typedef enum _e_bambu_bus_dev_type_
     {
         BambuBus_none=0x0000,
         BambuBus_AMS=0x0700,
         BambuBus_AMS_lite=0x1200,
-    };
+    }bambu_bus_dev_type_t;
+
     extern void BambuBus_init();
     extern package_type BambuBus_run();
-#define max_filament_num 4
+
     extern bool Bambubus_read();
     extern void Bambubus_set_need_to_save();
     extern int get_now_filament_num();

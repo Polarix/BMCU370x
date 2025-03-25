@@ -161,9 +161,11 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
 
     if (_index == 0)
     {
+        /* 每个数据包都是以0x3D开头 */
         if (data == 0x3D)
         {
             s_usart_rev_buf[0] = 0x3D;
+            /* 新的数据包传输开始，重置CRC计算。 */
             _RX_IRQ_crcx.restart();
             _RX_IRQ_crcx.add(0x3D);
             data_length_index = 4;
@@ -177,27 +179,31 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
         s_usart_rev_buf[_index] = data;
         if (_index == 1)
         {
+            /* 第二个字节 */
             if (data & 0x80)
             {
-                data_length_index = 2;
-                data_CRC8_index = 3;
+                data_length_index = 2;  /* 索引第2字节为数据包长度 */
+                data_CRC8_index = 3;    /* 索引第3字节为CRC8校验值的位置 */
             }
             else
             {
-                data_length_index = 4;
-                data_CRC8_index = 6;
+                data_length_index = 4;  /* 索引第4字节为数据包长度 */
+                data_CRC8_index = 6;    /* 索引第6字节为CRC8校验值的位置 */
             }
         }
         if (_index == data_length_index)
         {
+            /* 数据包长度 */
             length = data;
         }
         if (_index < data_CRC8_index)
         {
+            /* 将CRC8校验值之前的所有数据都参与CRC8计算 */
             _RX_IRQ_crcx.add(data);
         }
         else if (_index == data_CRC8_index)
         {
+            /* 计算CRC8并比较，如果错误则忽略此次传输，重置索引等待重新开始。 */
             if (data != _RX_IRQ_crcx.calc())
             {
                 _index = 0;
@@ -208,12 +214,16 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
         if (_index >= length)
         {
             _index = 0;
+            /* 已接收到一个完整的数据包。*/
+            
             memcpy(s_usart_rev_dump, s_usart_rev_buf, length);
             BambuBus_have_data = length;
         }
         if (_index >= 999)
         {
-            _index = 0;
+            /* 无效的数据包长度 */
+            /* 重置索引，等待下一次传输。 */
+        _index = 0;
         }
     }
 }
@@ -221,7 +231,7 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
 #include <stdio.h>
 
 DMA_InitTypeDef Bambubus_DMA_InitStructure;
-void send_uart(const unsigned char *data, uint16_t length)
+void bambu_bus_bsp_uart_write(const void* data, uint16_t length)
 {
     DMA_DeInit(DMA1_Channel4);
     // Configure DMA1 channel 4 for USART1 TX
@@ -234,7 +244,7 @@ void send_uart(const unsigned char *data, uint16_t length)
     USART_DMACmd(USART1, USART_DMAReq_Tx, ENABLE);
 }
 
-void BambuBUS_UART_Init()
+void bambu_bus_bsp_uart_init()
 {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     USART_InitTypeDef USART_InitStructure = {0};
@@ -304,6 +314,7 @@ void USART1_IRQHandler(void)
         GPIOA->BCR = GPIO_Pin_12;
     }
 }
+
 void BambuBus_init()
 {
     bool _init_ready = Bambubus_read();
@@ -379,7 +390,7 @@ void BambuBus_init()
         }
     }
 
-    BambuBUS_UART_Init();
+    bambu_bus_bsp_uart_init();
 }
 
 bool package_check_crc16(uint8_t *data, int data_length)
@@ -426,7 +437,7 @@ void package_send_with_crc(uint8_t *data, int data_length)
     data[(data_length)] = num & 0xFF;
     data[(data_length + 1)] = num >> 8;
     data_length += 2;
-    send_uart(data, data_length);
+    bambu_bus_bsp_uart_write(data, data_length);
     if (need_debug)
     {
         DEBUG_NUM_OUT(data, data_length);
@@ -468,7 +479,7 @@ void Bambubus_long_package_analysis(uint8_t *buf, int data_length, long_packge_d
 }
 
 long_packge_data printer_data_long;
-package_type get_packge_type(unsigned char *buf, int length)
+package_type bambu_bus_get_package_type(unsigned char *buf, int length)
 {
     if (package_check_crc16(buf, length) == false)
     {
@@ -920,12 +931,13 @@ void NFC_detect_run()
 uint8_t online_detect_num2[] = {0x0E, 0x7D, 0x32, 0x31, 0x31, 0x38, 0x15, 0x00, // 序列号？(额外包含之前一位)
                                 0x36, 0x39, 0x37, 0x33, 0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t online_detect_num[] = {0x90, 0x31, 0x33, 0x34, 0x36, 0x35, 0x02, 0x00, 0x37, 0x39, 0x33, 0x38, 0xFF, 0xFF, 0xFF, 0xFF};
-unsigned char F01_res[] = {
+
+static uint8_t s_f01_resp_template[] = {
     0x3D, 0xC0, 0x1D, 0xB4, 0x05, 0x01, 0x00,
     0x16,
     0x0E, 0x7D, 0x32, 0x31, 0x31, 0x38, 0x15, 0x00, 0x36, 0x39, 0x37, 0x33, 0xFF, 0xFF, 0xFF, 0xFF,
     0x00, 0x00, 0x00, 0x33, 0xF0};
-void send_for_online_detect(unsigned char *buf, int length)
+void send_for_online_detect(uint8_t* buf, int length)
 {
     /*
     uint8_t F00_res[4 * sizeof(F01_res)];
@@ -946,10 +958,11 @@ void send_for_online_detect(unsigned char *buf, int length)
         memcpy(F01_res + 4, buf + 4, 3);
         package_send_with_crc(F01_res, sizeof(F01_res));
     }*/
-    uint8_t F00_res[sizeof(F01_res)];
+    uint8_t F00_res[sizeof(s_f01_resp_template)];
+    // const uint8_t* bptr = reinterpret_cast<const uint8_t*>(buf);
     if ((buf[5] == 0x00))
     {
-        memcpy(F00_res, F01_res, sizeof(F01_res));
+        memcpy(F00_res, s_f01_resp_template, sizeof(s_f01_resp_template));
         F00_res[5] = 0;
         F00_res[6] = 0;
         F00_res[7] = 0;
@@ -959,8 +972,8 @@ void send_for_online_detect(unsigned char *buf, int length)
 
     if ((buf[5] == 0x01) && (buf[6] == 0))
     {
-        memcpy(F01_res + 4, buf + 4, 3);
-        package_send_with_crc(F01_res, sizeof(F01_res));
+        memcpy(s_f01_resp_template + 4, buf + 4, 3);
+        package_send_with_crc(s_f01_resp_template, sizeof(s_f01_resp_template));
     }
 }
 // 3D C5 0D F1 07 00 00 00 00 00 00 CE EC
@@ -1148,7 +1161,7 @@ package_type BambuBus_run()
         BambuBus_have_data = 0;
         need_debug = false;
         delay(1);
-        stu = get_packge_type(s_usart_rev_dump, data_length); // have_data
+        stu = bambu_bus_get_package_type(s_usart_rev_dump, data_length); // have_data
         switch (stu)
         {
         case BambuBus_package_heartbeat:

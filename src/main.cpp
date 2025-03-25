@@ -5,42 +5,42 @@
 
 extern void debug_send_run();
 #include "WS2812.h"
-WS2812_class SYS_RGB;
-WS2812_class RGBOUT[4];
+WS2812_class g_sys_rgb;
+WS2812_class g_filament_channel_rgb[4];
 
 void RGB_init()
 {
-    SYS_RGB.init(1, PD1);
-    RGBOUT[3].init(1, PB0);
-    RGBOUT[2].init(1, PB1);
-    RGBOUT[1].init(1, PA8);
-    RGBOUT[0].init(1, PA11);
+    g_sys_rgb.init(1, PD1);
+    g_filament_channel_rgb[3].init(1, PB0);
+    g_filament_channel_rgb[2].init(1, PB1);
+    g_filament_channel_rgb[1].init(1, PA8);
+    g_filament_channel_rgb[0].init(1, PA11);
 }
 void RGB_update()
 {
-    SYS_RGB.updata();
-    RGBOUT[0].updata();
-    RGBOUT[1].updata();
-    RGBOUT[2].updata();
-    RGBOUT[3].updata();
+    g_sys_rgb.updata();
+    g_filament_channel_rgb[0].updata();
+    g_filament_channel_rgb[1].updata();
+    g_filament_channel_rgb[2].updata();
+    g_filament_channel_rgb[3].updata();
 }
 void RGB_set(unsigned char CHx, unsigned char R, unsigned char G, unsigned char B)
 {
-    RGBOUT[CHx].set_RGB(R, G, B, 0);
+    g_filament_channel_rgb[CHx].set_RGB(R, G, B, 0);
 }
-extern void BambuBUS_UART_Init();
-extern void send_uart(const unsigned char *data, uint16_t length);
+extern void bambu_bus_bsp_uart_init();
+extern void bambu_bus_bsp_uart_write(const void* data, uint16_t length);
 
 void setup()
 {
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
     GPIO_PinRemapConfig(GPIO_Remap_PD01, ENABLE);
     RGB_init();
-    SYS_RGB.set_RGB(0x00, 0x00, 0x00, 0);
-    RGBOUT[0].set_RGB(0x00, 0x00, 0x00, 0);
-    RGBOUT[1].set_RGB(0x00, 0x00, 0x00, 0);
-    RGBOUT[2].set_RGB(0x00, 0x00, 0x00, 0);
-    RGBOUT[3].set_RGB(0x00, 0x00, 0x00, 0);
+    g_sys_rgb.set_RGB(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[0].set_RGB(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[1].set_RGB(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[2].set_RGB(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[3].set_RGB(0x00, 0x00, 0x00, 0);
     RGB_update();
     
     BambuBus_init();
@@ -76,7 +76,7 @@ void loop()
             if (stu == BambuBus_package_ERROR) // offline
             {
                 error = -1;
-                SYS_RGB.set_RGB(0x30, 0x00, 0x00, 0);
+                g_sys_rgb.set_RGB(0x30, 0x00, 0x00, 0);
                 RGB_update();
             }
             else // have data
@@ -85,9 +85,9 @@ void loop()
                 if (stu == BambuBus_package_heartbeat)
                 {
                     if(device_type==BambuBus_AMS_lite)
-                        SYS_RGB.set_RGB(0x00, 0x00, 0x10, 0);
+                        g_sys_rgb.set_RGB(0x00, 0x00, 0x10, 0);
                     else if(device_type==BambuBus_AMS)
-                        SYS_RGB.set_RGB(0x10, 0x10, 0x00, 0);
+                        g_sys_rgb.set_RGB(0x10, 0x10, 0x00, 0);
                     RGB_update();
                 }
             }
