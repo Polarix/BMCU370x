@@ -1,15 +1,16 @@
 #include "BambuBus.h"
 #include "CRC16.h"
 #include "CRC8.h"
+
 CRC16 crc_16;
 CRC8 crc_8;
 
 uint8_t s_usart_rev_buf[1000];
-int BambuBus_have_data = 0;
+static uint32_t s_bambu_bus_rev_length = 0;
 uint16_t BambuBus_address = 0;
 uint8_t AMS_num = 1;
 
-struct _filament
+typedef struct _st_filament_channel_
 {
     // AMS statu
     char ID[8] = "GFG00";
@@ -27,28 +28,29 @@ struct _filament
     // printer_set
     _filament_motion_state_set motion_set = idle;
     uint16_t pressure = 0xFFFF;
-};
+}bambu_bus_filament_channel_t;
 
 #define use_flash_addr ((uint32_t)0x0800F000)
 
 struct alignas(4) flash_save_struct
 {
-    _filament filament[4][4];
-    int BambuBus_now_filament_num = 0;
-    uint32_t version = Bambubus_version;
+    bambu_bus_filament_channel_t filament[4][4]; /* 下标含义为[AMS设备索引][设备上的料盘索引] */
+    int actived_channel = 0;
+    uint32_t version = BAMBU_BUS_VER;
     uint32_t check = 0x40614061;
 } data_save;
 
-bool Bambubus_read()
+bool bambu_bus_load_storage_data(void)
 {
     flash_save_struct *ptr = (flash_save_struct *)(use_flash_addr);
-    if ((ptr->check == 0x40614061) && (ptr->version == Bambubus_version))
+    if ((ptr->check == 0x40614061) && (ptr->version == BAMBU_BUS_VER))
     {
         memcpy(&data_save, ptr, sizeof(data_save));
         return true;
     }
     return false;
 }
+
 bool Bambubus_need_to_save = false;
 void Bambubus_set_need_to_save()
 {
@@ -61,27 +63,38 @@ void Bambubus_save()
 
 int get_now_filament_num()
 {
-    return data_save.BambuBus_now_filament_num;
+    return data_save.actived_channel;
 }
 uint16_t get_now_BambuBus_device_type()
 {
     return BambuBus_address;
 }
 
+/* 复位料丝通道计数 */
 void reset_filament_meters(int num)
 {
+    /* 最多四台AMS、每个AMS最多四通道，共计十六个料丝通道。 */
     if (num < 16)
+    {
         data_save.filament[num / 4][num % 4].meters = 0;
+    }
 }
+
+/* 设置料丝增量 */
 void add_filament_meters(int num, float meters)
 {
+    /* 最多四台AMS、每个AMS最多四通道，共计十六个料丝通道。 */
     if (num < 16)
     {
         int AMS = num / 4, filament = num % 4;
         if ((data_save.filament[AMS][filament].motion_set == on_use)||(data_save.filament[AMS][filament].motion_set == need_pull_back))
+        {
             data_save.filament[AMS][filament].meters += meters;
+        }
     }
 }
+
+/* 获取当前通道料丝使用量 */
 float get_filament_meters(int num)
 {
     if (num < 16)
@@ -130,9 +143,12 @@ _filament_motion_state_set get_filament_motion(int num)
     else
         return idle;
 }
+
+/* 当前是否在打印中 */
 bool BambuBus_if_on_print()
 {
     bool on_print = false;
+    /* 逐一判断各个通道的状态，只要不是IDLE就是在使用中，使用中就意味着正在打印。 */
     for (int i = 0; i < 4; i++)
     {
         for (int j = 0; i < 4; j++)
@@ -148,7 +164,8 @@ bool BambuBus_if_on_print()
 
 uint8_t s_usart_rev_dump[1000]; /* 串口接收完成后的内容会被转储到这里 */
 
-CRC8 _RX_IRQ_crcx(0x39, 0x66, 0x00, false, false);
+/* CRC计算对象，用于计算接收内容的CRC值 */
+static CRC8 s_rx_crc_cala(0x39, 0x66, 0x00, false, false);
 
 /* 串口中断服务函数 */
 void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
@@ -166,8 +183,8 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
         {
             s_usart_rev_buf[0] = 0x3D;
             /* 新的数据包传输开始，重置CRC计算。 */
-            _RX_IRQ_crcx.restart();
-            _RX_IRQ_crcx.add(0x3D);
+            s_rx_crc_cala.restart();
+            s_rx_crc_cala.add(0x3D);
             data_length_index = 4;
             length = data_CRC8_index = 6;
             _index = 1;
@@ -199,12 +216,12 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
         if (_index < data_CRC8_index)
         {
             /* 将CRC8校验值之前的所有数据都参与CRC8计算 */
-            _RX_IRQ_crcx.add(data);
+            s_rx_crc_cala.add(data);
         }
         else if (_index == data_CRC8_index)
         {
             /* 计算CRC8并比较，如果错误则忽略此次传输，重置索引等待重新开始。 */
-            if (data != _RX_IRQ_crcx.calc())
+            if (data != s_rx_crc_cala.calc())
             {
                 _index = 0;
                 return;
@@ -217,7 +234,7 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
             /* 已接收到一个完整的数据包。*/
             
             memcpy(s_usart_rev_dump, s_usart_rev_buf, length);
-            BambuBus_have_data = length;
+            s_bambu_bus_rev_length = length;
         }
         if (_index >= 999)
         {
@@ -230,6 +247,7 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
 
 #include <stdio.h>
 
+/* 通过DMA发送Respose给打印机。 */
 DMA_InitTypeDef Bambubus_DMA_InitStructure;
 void bambu_bus_bsp_uart_write(const void* data, uint16_t length)
 {
@@ -310,6 +328,7 @@ void USART1_IRQHandler(void)
     }
     if (USART_GetITStatus(USART1, USART_IT_TC) != RESET)
     {
+        /* 发送完毕，清空RS485控制器的发送线。 */
         USART_ClearITPendingBit(USART1, USART_IT_TC);
         GPIOA->BCR = GPIO_Pin_12;
     }
@@ -317,10 +336,11 @@ void USART1_IRQHandler(void)
 
 void BambuBus_init()
 {
-    bool _init_ready = Bambubus_read();
+    bool _init_ready = bambu_bus_load_storage_data();
     crc_8.reset(0x39, 0x66, 0, false, false);
     crc_16.reset(0x1021, 0x913D, 0, false, false);
 
+    /* 初次使用时，初始化BMCU的保存数据。 */
     if (!_init_ready)
     {
         data_save.filament[0][0].color_R = 0xFF;
@@ -375,6 +395,7 @@ void BambuBus_init()
         data_save.filament[3][3].color_G = 0x20;
         data_save.filament[3][3].color_B = 0x20;
     }
+    /* 初始化各通道状态和送料长度计数。 */
     for (auto &i : data_save.filament)
     {
         for (auto &j : i)
@@ -389,14 +410,15 @@ void BambuBus_init()
             j.meters = 0;
         }
     }
-
+    /* 初始化RS485总线。 */
     bambu_bus_bsp_uart_init();
 }
 
-bool package_check_crc16(uint8_t *data, int data_length)
+bool package_check_crc16(const uint8_t *data, int data_length)
 {
     crc_16.restart();
     data_length -= 2;
+    /* 最后两字节为CRC16的值，之前的是数据。 */
     for (auto i = 0; i < data_length; i++)
     {
         crc_16.add(data[i]);
@@ -407,12 +429,14 @@ bool package_check_crc16(uint8_t *data, int data_length)
     return false;
 }
 bool need_debug = false;
-void package_send_with_crc(uint8_t *data, int data_length)
+/* 计算CRC值并发送响应数据 */
+void bambu_bus_send_response(uint8_t *data, int data_length)
 {
 
     crc_8.restart();
     if (data[1] & 0x80)
     {
+        /* 短包应答的头部CRC8计算 */
         for (auto i = 0; i < 3; i++)
         {
             crc_8.add(data[i]);
@@ -421,6 +445,7 @@ void package_send_with_crc(uint8_t *data, int data_length)
     }
     else
     {
+        /* 长包应答的头部CRC8计算 */
         for (auto i = 0; i < 6; i++)
         {
             crc_8.add(data[i]);
@@ -450,44 +475,53 @@ uint8_t packge_send_buf[1000];
 #pragma pack(push, 1) // 将结构体按1字节对齐
 struct long_packge_data
 {
-    uint16_t package_number;
-    uint16_t package_length;
-    uint8_t crc8;
-    uint16_t target_address;
-    uint16_t source_address;
-    uint16_t type;
-    uint8_t *datas;
-    uint16_t data_length;
+    uint16_t package_number;    // 2
+    uint16_t package_length;    // 2
+    uint8_t crc8;               // 1
+    uint16_t target_address;    // 2
+    uint16_t source_address;    // 2
+    uint16_t type;              // 2
+    uint8_t *datas;             // 4
+    uint16_t data_length;       // 2
 };
 #pragma pack(pop) // 恢复默认对齐
 
+/* 发送长数据包应答数据 */
 void Bambubus_long_package_send(long_packge_data *data)
 {
+    /* 包头固定值 */
     packge_send_buf[0] = 0x3D;
     packge_send_buf[1] = 0x00;
-    data->package_length = data->data_length + 15;
+    data->package_length = data->data_length + 15; /* 2字节先导头+11字节长包头+2字节尾部CRC16 */
     memcpy(packge_send_buf + 2, data, 11);
     memcpy(packge_send_buf + 13, data->datas, data->data_length);
-    package_send_with_crc(packge_send_buf, data->data_length + 15);
+    /* 计算CRC值并发送数据 */
+    bambu_bus_send_response(packge_send_buf, data->data_length + 15);
 }
 
 void Bambubus_long_package_analysis(uint8_t *buf, int data_length, long_packge_data *data)
 {
+    /* |01|2--12|13-14|15| */
+    /* 忽略0/1字节，从第2-12字节是长数据包的内容，长度11字节。 */
     memcpy(data, buf + 2, 11);
+    /* 13字节开始是包数据，长度未知 */
     data->datas = buf + 13;
-    data->data_length = data_length - 15; // +2byte CRC16
+    /* 再减去2字节的CRC16校验值，其余的是包数据体。 */
+    data->data_length = data_length - (13+2); // +2byte CRC16
 }
 
 long_packge_data printer_data_long;
-package_type bambu_bus_get_package_type(unsigned char *buf, int length)
+bambu_bus_package_type_t bambu_bus_get_package_type(uint8_t* buf, int length)
 {
+    /* 首先计算接收包的CRC16，判断数据有效性。 */
     if (package_check_crc16(buf, length) == false)
     {
         return BambuBus_package_NONE;
     }
+    /* 字节1是C5 */
     if (buf[1] == 0xC5)
     {
-
+        /* 根据字节4判断数据类型。 */
         switch (buf[4])
         {
         case 0x03:
@@ -505,12 +539,14 @@ package_type bambu_bus_get_package_type(unsigned char *buf, int length)
         case 0x20:
             return BambuBus_package_heartbeat;
         default:
-            return BambuBus_package_ETC;
+            return BambuBus_package_ETC; // 不需要应答处理
         }
     }
+    /* 字节1是05，代表接手的是“长数据”，需要对数据进行二次解析。 */
     else if (buf[1] == 0x05)
     {
         Bambubus_long_package_analysis(buf, length, &printer_data_long);
+
         if (printer_data_long.target_address == BambuBus_AMS)
         {
             BambuBus_address = BambuBus_AMS;
@@ -533,6 +569,7 @@ package_type bambu_bus_get_package_type(unsigned char *buf, int length)
             return BambuBus_package_ETC;
         }
     }
+    /* 未知包类型，丢弃。 */
     return BambuBus_package_NONE;
 }
 uint8_t package_num = 0;
@@ -598,14 +635,14 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
             if ((statu_flags == 0x03) && (fliment_motion_flag == 0x00)) // 03 00
             {
                 uint8_t numx = AMS_num * 4 + read_num;
-                if (data_save.BambuBus_now_filament_num != numx) // on change
+                if (data_save.actived_channel != numx) // on change
                 {
-                    if (data_save.BambuBus_now_filament_num < 16)
+                    if (data_save.actived_channel < 16)
                     {
-                        data_save.filament[data_save.BambuBus_now_filament_num / 4][data_save.BambuBus_now_filament_num % 4].motion_set = idle;
-                        data_save.filament[data_save.BambuBus_now_filament_num / 4][data_save.BambuBus_now_filament_num % 4].pressure = 0xFFFF;
+                        data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4].motion_set = idle;
+                        data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4].pressure = 0xFFFF;
                     }
-                    data_save.BambuBus_now_filament_num = numx;
+                    data_save.actived_channel = numx;
                 }
                 data_save.filament[AMS_num][read_num].motion_set = need_send_out;
                 data_save.filament[AMS_num][read_num].pressure = 0x4700;
@@ -634,8 +671,8 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
         {
             if ((statu_flags == 0x03) && (fliment_motion_flag == 0x00)) // 03 00(FF)
             {
-                _filament *filament = &(data_save.filament[data_save.BambuBus_now_filament_num / 4][data_save.BambuBus_now_filament_num % 4]);
-                if (data_save.BambuBus_now_filament_num < 16)
+                bambu_bus_filament_channel_t *filament = &(data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4]);
+                if (data_save.actived_channel < 16)
                 {
                     if (filament->motion_set == on_use)
                         filament->motion_set = need_pull_back;
@@ -662,7 +699,7 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
             }
             else if ((statu_flags == 0x03) && (fliment_motion_flag == 0xBF)) // 03 BF
             {
-                data_save.BambuBus_now_filament_num = AMS_num * 4 + read_num;
+                data_save.actived_channel = AMS_num * 4 + read_num;
                 if (data_save.filament[AMS_num][read_num].motion_set != need_send_out)
                 {
                     for (int i = 0; i < 4; i++)
@@ -674,7 +711,7 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
             }
             else if ((statu_flags == 0x07) && (fliment_motion_flag == 0x00)) // 07 00
             {
-                data_save.BambuBus_now_filament_num = AMS_num * 4 + read_num;
+                data_save.actived_channel = AMS_num * 4 + read_num;
                 if (data_save.filament[AMS_num][read_num].motion_set == need_send_out)
                 {
                     data_save.filament[AMS_num][read_num].motion_set = on_use;
@@ -691,7 +728,7 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
         }
         else if ((read_num == 0xFF) && (statu_flags == 0x01))
         {
-            _filament_motion_state_set motion = data_save.filament[data_save.BambuBus_now_filament_num / 4][data_save.BambuBus_now_filament_num % 4].motion_set;
+            _filament_motion_state_set motion = data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4].motion_set;
             if (motion != on_use)
                 for (int i = 0; i < 4; i++)
                 {
@@ -752,6 +789,7 @@ unsigned char Cxx_res[] = {0x3D, 0xE0, 0x2C, 0x1A, 0x03,
                            0x90, 0xE4};
 void send_for_motion_short(unsigned char *buf, int length)
 {
+    /* 这个package_num是干啥用的。 */
     Cxx_res[1] = 0xC0 | (package_num << 3);
     unsigned char AMS_num = buf[5];
     unsigned char statu_flags = buf[6];
@@ -762,7 +800,7 @@ void send_for_motion_short(unsigned char *buf, int length)
         return;
 
     set_motion_res_datas(Cxx_res + 5, AMS_num, read_num);
-    package_send_with_crc(Cxx_res, sizeof(Cxx_res));
+    bambu_bus_send_response(Cxx_res, sizeof(Cxx_res));
     if (package_num < 7)
         package_num++;
     else
@@ -874,7 +912,7 @@ void send_for_motion_long(unsigned char *buf, int length)
         }
         last_detect--;
     }
-    package_send_with_crc(Dxx_res, sizeof(Dxx_res));
+    bambu_bus_send_response(Dxx_res, sizeof(Dxx_res));
     if (package_num < 7)
         package_num++;
     else
@@ -928,18 +966,27 @@ void NFC_detect_run()
         filament_flag_detected = 0;
     }*/
 }
-uint8_t online_detect_num2[] = {0x0E, 0x7D, 0x32, 0x31, 0x31, 0x38, 0x15, 0x00, // 序列号？(额外包含之前一位)
-                                0x36, 0x39, 0x37, 0x33, 0xFF, 0xFF, 0xFF, 0xFF};
-uint8_t online_detect_num[] = {0x90, 0x31, 0x33, 0x34, 0x36, 0x35, 0x02, 0x00, 0x37, 0x39, 0x33, 0x38, 0xFF, 0xFF, 0xFF, 0xFF};
 
-static uint8_t s_f01_resp_template[] = {
-    0x3D, 0xC0, 0x1D, 0xB4, 0x05, 0x01, 0x00,
-    0x16,
-    0x0E, 0x7D, 0x32, 0x31, 0x31, 0x38, 0x15, 0x00, 0x36, 0x39, 0x37, 0x33, 0xFF, 0xFF, 0xFF, 0xFF,
-    0x00, 0x00, 0x00, 0x33, 0xF0};
+//===========================================================//
+//= 设备上线检知响应                                         =//
+//===========================================================//
+/* 数据模板 */
+static uint8_t online_detect_num2[] = {0x0E, 0x7D, 0x32, 0x31, 0x31, 0x38, 0x15, 0x00, // 序列号？(额外包含之前一位)
+                                0x36, 0x39, 0x37, 0x33, 0xFF, 0xFF, 0xFF, 0xFF};
+static uint8_t online_detect_num[] = {0x90, 0x31, 0x33, 0x34, 0x36, 0x35, 0x02, 0x00, 0x37, 0x39, 0x33, 0x38, 0xFF, 0xFF, 0xFF, 0xFF};
+
+static uint8_t s_f01_resp_template[] =
+{
+    /*  0 */0x3D, 0xC0, 
+    /*  2 */0x1D, 0xB4, 0x05, 0x01, 0x00,
+    /*  7 */0x16,
+    /*  8 */0x0E, 0x7D, 0x32, 0x31, 0x31, 0x38, 0x15, 0x00, 0x36, 0x39, 0x37, 0x33, 0xFF, 0xFF, 0xFF, 0xFF,
+    /* 24 */0x00, 0x00, 0x00, 0x33, 0xF0
+};
+/* 设备上线检知响应函数 */
 void send_for_online_detect(uint8_t* buf, int length)
 {
-    /*
+#if 0
     uint8_t F00_res[4 * sizeof(F01_res)];
     if ((buf[5] == 0x00))
     {
@@ -957,7 +1004,8 @@ void send_for_online_detect(uint8_t* buf, int length)
     {
         memcpy(F01_res + 4, buf + 4, 3);
         package_send_with_crc(F01_res, sizeof(F01_res));
-    }*/
+    }
+#endif
     uint8_t F00_res[sizeof(s_f01_resp_template)];
     // const uint8_t* bptr = reinterpret_cast<const uint8_t*>(buf);
     if ((buf[5] == 0x00))
@@ -967,29 +1015,35 @@ void send_for_online_detect(uint8_t* buf, int length)
         F00_res[6] = 0;
         F00_res[7] = 0;
 
-        package_send_with_crc(F00_res, sizeof(F00_res));
+        bambu_bus_send_response(F00_res, sizeof(F00_res));
     }
 
     if ((buf[5] == 0x01) && (buf[6] == 0))
     {
         memcpy(s_f01_resp_template + 4, buf + 4, 3);
-        package_send_with_crc(s_f01_resp_template, sizeof(s_f01_resp_template));
+        bambu_bus_send_response(s_f01_resp_template, sizeof(s_f01_resp_template));
     }
 }
 // 3D C5 0D F1 07 00 00 00 00 00 00 CE EC
 // 3D C0 0D 6F 07 00 00 00 00 00 00 9A 70
 
+//===========================================================//
+//= NFC检知响应                                             =//
+//===========================================================//
+/* 数据模板 */
 unsigned char NFC_detect_res[] = {0x3D, 0xC0, 0x0D, 0x6F, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0xE8};
+/* NFC检知响应函数 */
 void send_for_NFC_detect(unsigned char *buf, int length)
 {
     last_detect = 20;
     filament_flag_detected = 1 << buf[6];
     NFC_detect_res[6] = buf[6];
     NFC_detect_res[7] = buf[7];
-    package_send_with_crc(NFC_detect_res, sizeof(NFC_detect_res));
+    bambu_bus_send_response(NFC_detect_res, sizeof(NFC_detect_res));
 }
 
 unsigned char long_packge_MC_online[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+/* 返回电机控制状态， 实际没做什么处理 */
 void send_for_long_packge_MC_online(unsigned char *buf, int length)
 {
     long_packge_data data;
@@ -1020,16 +1074,28 @@ void send_for_long_packge_MC_online(unsigned char *buf, int length)
     data.target_address = printer_data_long.source_address;
     Bambubus_long_package_send(&data);
 }
+
+//===========================================================//
+//= 获取耗材信息响应                                         =//
+//===========================================================//
+/* 数据模板 */
 unsigned char long_packge_filament[] =
     {
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x47, 0x46, 0x42, 0x30, 0x30, 0x00, 0x00, 0x00,
-        0x41, 0x42, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xDD, 0xB1, 0xD4, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x18, 0x01, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        /*  0 */0x00, /* 设备索引 */
+        /*  1 */0x00, /* 耗材通道索引 */
+        /*  2 */0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 未知用途 */
+        /* 19 */0x47, 0x46, 0x42, 0x30, 0x30, 0x00, 0x00, 0x00, /* 耗材ID */
+        /* 27 */0x41, 0x42, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 耗材名 */
+        /* 47 */0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 未知用途 */
+        /* 59 */0xDD, 0xB1, 0xD4, 0xFF, /* 耗材颜色 */
+        /* 63 */0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* 未知用途 */
+        /* 79 */0x18, 0x01, /* 最高打印温度 */
+        /* 81 */0xF0, 0x00, /* 最低打印温度 */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+/* 获取耗材信息响应函数 */
 void send_for_long_packge_filament(unsigned char *buf, int length)
 {
     long_packge_data data;
@@ -1037,8 +1103,9 @@ void send_for_long_packge_filament(unsigned char *buf, int length)
 
     uint8_t AMS_num = printer_data_long.datas[0];
     uint8_t filament_num = printer_data_long.datas[1];
-    long_packge_filament[0] = AMS_num;
-    long_packge_filament[1] = filament_num;
+    /* 每次只获取一个通道 */
+    long_packge_filament[0] = AMS_num;      /* 设备索引 */
+    long_packge_filament[1] = filament_num; /* 耗材通道索引 */
     memcpy(long_packge_filament + 19, data_save.filament[AMS_num][filament_num].ID, sizeof(data_save.filament[AMS_num][filament_num].ID));
     memcpy(long_packge_filament + 27, data_save.filament[AMS_num][filament_num].name, sizeof(data_save.filament[AMS_num][filament_num].name));
     long_packge_filament[59] = data_save.filament[AMS_num][filament_num].color_R;
@@ -1055,8 +1122,15 @@ void send_for_long_packge_filament(unsigned char *buf, int length)
     data.type = printer_data_long.type;
     data.source_address = printer_data_long.target_address;
     data.target_address = printer_data_long.source_address;
+
+    /* 发送长包应答数据 */
     Bambubus_long_package_send(&data);
 }
+
+//===========================================================//
+//= 获取版本信息响应                                         =//
+//===========================================================//
+/* 数据模板 */
 unsigned char serial_number[] = {"STUDY0ONLY"};
 unsigned char long_packge_version_serial_number[] = {9, // length
                                                      'S', 'T', 'U', 'D', 'Y', 'O', 'N', 'L', 'Y', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1088,30 +1162,36 @@ void send_for_long_packge_version(unsigned char *buf, int length)
     }
     else
     {
-        return;
+            /* Unknown target, do nothing and exit. */
+            return;
     }
 
     switch (printer_data_long.type)
     {
-    case 0x402:
+        case 0x402: /* 获取串号 */
+        {
+            AMS_num = printer_data_long.datas[33];
+            long_packge_version_serial_number[0] = sizeof(serial_number);
+            memcpy(long_packge_version_serial_number + 1, serial_number, sizeof(serial_number));
+            data.datas = long_packge_version_serial_number;
+            data.data_length = sizeof(long_packge_version_serial_number);
 
-        AMS_num = printer_data_long.datas[33];
-        long_packge_version_serial_number[0] = sizeof(serial_number);
-        memcpy(long_packge_version_serial_number + 1, serial_number, sizeof(serial_number));
-        data.datas = long_packge_version_serial_number;
-        data.data_length = sizeof(long_packge_version_serial_number);
-
-        data.datas[65] = AMS_num;
-        break;
-    case 0x103:
-
-        AMS_num = printer_data_long.datas[0];
-        data.datas = long_packge_version_version_and_name;
-        data.data_length = sizeof(long_packge_version_version_and_name_AMS08);
-        data.datas[20] = AMS_num;
-        break;
-    default:
-        return;
+            data.datas[65] = AMS_num;
+            break;
+        }
+        case 0x103:
+        {
+            AMS_num = printer_data_long.datas[0];
+            data.datas = long_packge_version_version_and_name;
+            data.data_length = sizeof(long_packge_version_version_and_name_AMS08);
+            data.datas[20] = AMS_num;
+            break;
+        }
+        default:
+        {
+            /* Unknown type, do nothing and exit. */
+            return;
+        }
     }
 
     data.package_number = printer_data_long.package_number;
@@ -1122,8 +1202,14 @@ void send_for_long_packge_version(unsigned char *buf, int length)
 }
 unsigned char s = 0x01;
 
-unsigned char Set_filament_res[] = {0x3D, 0xC0, 0x08, 0xB2, 0x08, 0x60, 0xB4, 0x04};
-void send_for_set_filament(unsigned char *buf, int length)
+
+//===========================================================//
+//= 设置、更新耗材信息响应                                    =//
+//===========================================================//
+/* 数据模板 */
+static uint8_t s_update_filament_resp_temp[] = {0x3D, 0xC0, 0x08, 0xB2, 0x08, 0x60, 0xB4, 0x04};
+//* 设置、更新耗材信息响应函数 */
+void update_filament_info_resp(unsigned char *buf, int length)
 {
     uint8_t read_num = buf[5];
     uint8_t AMS_num = read_num & 0xF0;
@@ -1138,13 +1224,14 @@ void send_for_set_filament(unsigned char *buf, int length)
     memcpy(&data_save.filament[AMS_num][read_num].temperature_min, buf + 19, 2);
     memcpy(&data_save.filament[AMS_num][read_num].temperature_max, buf + 21, 2);
     memcpy(data_save.filament[AMS_num][read_num].name, buf + 23, sizeof(data_save.filament[AMS_num][read_num].name));
-    package_send_with_crc(Set_filament_res, sizeof(Set_filament_res));
+    bambu_bus_send_response(s_update_filament_resp_temp, sizeof(s_update_filament_resp_temp));
     Bambubus_set_need_to_save();
 }
 
-package_type BambuBus_run()
+
+bambu_bus_package_type_t BambuBus_run(void)
 {
-    package_type stu = BambuBus_package_NONE;
+    bambu_bus_package_type_t stu = BambuBus_package_NONE;
     static uint64_t time_set = 0;
     static uint64_t time_motion = 0;
 
@@ -1155,47 +1242,49 @@ package_type BambuBus_run()
         i->motion_set = idle;
     }*/
 
-    if (BambuBus_have_data)
+    if (s_bambu_bus_rev_length)
     {
-        int data_length = BambuBus_have_data;
-        BambuBus_have_data = 0;
+        int data_length = s_bambu_bus_rev_length;
+        s_bambu_bus_rev_length = 0;
         need_debug = false;
         delay(1);
+        /* 分析接收的数据，获取包类型。 */
         stu = bambu_bus_get_package_type(s_usart_rev_dump, data_length); // have_data
         switch (stu)
         {
-        case BambuBus_package_heartbeat:
+        case BambuBus_package_heartbeat: /* 短包，通信心跳检查 */
+        {
             time_set = timex + 1000;
             break;
-        case BambuBus_package_filament_motion_short:
+        }
+        case BambuBus_package_filament_motion_short: /* 短包 */
             send_for_motion_short(s_usart_rev_dump, data_length);
             break;
-        case BambuBus_package_filament_motion_long:
+        case BambuBus_package_filament_motion_long: /* 短包 */
             DEBUG_NUM_OUT(s_usart_rev_dump, data_length);
             send_for_motion_long(s_usart_rev_dump, data_length);
             time_motion = timex + 1000;
             break;
-        case BambuBus_package_online_detect:
-
+        case BambuBus_package_online_detect: /* 短包，设备连线检测 */
             send_for_online_detect(s_usart_rev_dump, data_length);
             break;
-        case BambuBus_package_REQx6:
+        case BambuBus_package_REQx6:    /* 短包 */
             // send_for_REQx6(buf_X, data_length);
             break;
-        case BambuBus_long_package_MC_online:
+        case BambuBus_long_package_MC_online: /* 长包 */
             send_for_long_packge_MC_online(s_usart_rev_dump, data_length);
             break;
-        case BambuBus_longe_package_filament:
+        case BambuBus_longe_package_filament: /* 长包，获取耗材信息 */
             send_for_long_packge_filament(s_usart_rev_dump, data_length);
             break;
-        case BambuBus_long_package_version:
+        case BambuBus_long_package_version: /* 长包，获取版本信息 */
             send_for_long_packge_version(s_usart_rev_dump, data_length);
             break;
-        case BambuBus_package_NFC_detect:
+        case BambuBus_package_NFC_detect: /* 短包，NFC检知 */
             // send_for_NFC_detect(buf_X, data_length);
             break;
-        case BambuBus_package_set_filament:
-            send_for_set_filament(s_usart_rev_dump, data_length);
+        case BambuBus_package_set_filament: /* 短包，更新耗材信息 */
+            update_filament_info_resp(s_usart_rev_dump, data_length);
             break;
         default:
             break;

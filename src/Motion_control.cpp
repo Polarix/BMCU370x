@@ -71,7 +71,7 @@ public:
     }
 };
 
-enum filament_motion_enum
+typedef enum _e_filament_motion_
 {
     filament_motion_send = 1,
     filament_motion_send_pressure,
@@ -81,7 +81,7 @@ enum filament_motion_enum
     filament_motion_no_resistance = 0,
     filament_motion_less_pressure = 100,
     filament_motion_over_pressure = 101,
-};
+}filament_motion_enum_t;
 
 class _MOTOR_CONTROL
 {
@@ -167,8 +167,14 @@ public:
             // 缓冲时压力不会太小 默认：10
             if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 辅助送料速度
             {
-                speed_set = 10; // Ams 辅助送料速度 阻力大可改成 10-15
-            } else { // amslite 保持慢速辅助送料
+                /* 型号：AMS */
+                /* 保持慢速辅助送料 阻力大可改成 10-15 */
+                speed_set = 10;
+            }
+            else /* if(device_type == BambuBus_AMS_lite) */
+            {
+                /* 型号：AMS Lite */ 
+                /* 保持慢速辅助送料 */
                 speed_set = 10;
             }
         }
@@ -330,12 +336,16 @@ void AS5600_distance_updata()
             cir_E = 4096;
         }
 
-        distance_E = (float)(now_distance - last_distance + cir_E) * AS5600_PI * 7.5 / 4096; // D=7.5mm
+        /* BMG挤出轮的送料区直径是7.5mm */
+        /* now_distance - last_distance + cir_E，确保当前计算的料丝长度有效，不会溢出 */
+        distance_E = (float)(now_distance - last_distance + cir_E) * AS5600_PI * 7.5 / 4096;
         as5600_distance_save[i] = now_distance;
 
         float speedx = distance_E / T * 1000;
         // T = speed_filter_k / (T + speed_filter_k);
         speed_as5600[i] = speedx; // * (1 - T) + speed_as5600[i] * T; // mm/s
+
+        /* 记录料丝增量，单位是米(m)，所以/1000。 */
         add_filament_meters(i, distance_E / 1000);
     }
     time_last = time_now;
@@ -451,17 +461,24 @@ void motor_motion_run(int error)
     uint64_t OUT_TIME = 8000;
     uint16_t device_type = get_now_BambuBus_device_type();
 
-    if (!error) {
+    if (!error)
+    {
         // 根据设备类型执行不同的电机控制逻辑
-        if (device_type == BambuBus_AMS_lite) {
+        if (device_type == BambuBus_AMS_lite)
+        {
             OUT_TIME = A1X_OUT_TIME;
-        } else if (device_type == BambuBus_AMS) {
+        }
+        else if(device_type == BambuBus_AMS)
+        {
             OUT_TIME = P1X_OUT_TIME;
         } // 执行
-        if (!Prepare_For_filament_Pull_Back(OUT_TIME)) { // 如果 wait 返回 false，不用等待。
+        if (!Prepare_For_filament_Pull_Back(OUT_TIME))
+        { // 如果 wait 返回 false，不用等待。
             motor_motion_switch(); // 完成退料
         }
-    } else {
+    }
+    else
+    {
         for (int i = 0; i < 4; i++)
             MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
     }
@@ -476,9 +493,11 @@ void motor_motion_run(int error)
 
 void Motion_control_run(int error)
 {
+    /* 更新缓冲器状态 */    
     MC_PULL_key_read();
+    /* 更新料丝状态 */
     MC_ONLINE_key_read();
-
+    /* 更新送料齿轮状态 */
     AS5600_distance_updata();
     for (int i = 0; i < 4; i++)
     {
@@ -493,11 +512,14 @@ void Motion_control_run(int error)
     }
     if (error)
     {
+        /* error值非零（通过代码分析大概是-1），BMCU处于离线状态。 */
         for (int i = 0; i < 4; i++)
         {
+            /* 清除料丝存在状态 */
             set_filament_online(i, false);
             if (PULL_key_stu[i] == 0)
             {
+                /* 缓冲器张紧状态 */
                 RGB_set(i, 0xFF, 0x00, 0x00);
                 if (ONLINE_key_stu[i] == 0)
                 {
@@ -506,18 +528,24 @@ void Motion_control_run(int error)
             }
             else if (ONLINE_key_stu[i] == 0)
             {
+                /* 缓冲器松弛状态 */
                 RGB_set(i, 0x00, 0x00, 0xFF);
             }
             else
             {
+                /* 理论上不会走到这个分支 */
                 RGB_set(i, 0x00, 0x00, 0x00);
             }
         }
     }
     else
+    {
+        /* BMCU在线状态，更新各通道指示灯颜色 */
         for (int i = 0; i < 4; i++)
+        {
             RGB_set(i, 0x00, 0x00, 0x37);
-
+        }
+    }
     motor_motion_run(error);
 
     for (int i = 0; i < 4; i++)

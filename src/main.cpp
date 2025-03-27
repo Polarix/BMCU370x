@@ -65,7 +65,7 @@ void loop()
 
     while (1)
     {
-        package_type stu = BambuBus_run();
+        bambu_bus_package_type_t stu = BambuBus_run();
         // int stu =-1;
         static int error = 0;
         bool motion_can_run = false;
@@ -96,8 +96,11 @@ void loop()
         {
 
         }
+        /* 需要更新送料电机状态和动作 */
         if (motion_can_run)
+        {
             Motion_control_run(error);
+        }
     }
 }
 /*
