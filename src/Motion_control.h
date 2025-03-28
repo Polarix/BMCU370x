@@ -6,6 +6,6 @@
 
 extern void Motion_control_init();
 extern void Motion_control_set_PWM(uint8_t CHx,int PWM);
-extern void Motion_control_run(int error);
+extern void motion_control_ticks_handler(int error);
 
 #endif /* _INCLUDE_MOTION_CTRL_H_ */

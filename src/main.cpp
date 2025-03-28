@@ -60,10 +60,10 @@ uint8_t T_to_tangle(uint32_t time)
         return time * 2;
 }
 
-void loop()
+void loop(void)
 {
-
-    while (1)
+    // while (1)
+    /* loop函数本身会被循环调用. */
     {
         bambu_bus_package_type_t stu = BambuBus_run();
         // int stu =-1;
@@ -99,7 +99,7 @@ void loop()
         /* 需要更新送料电机状态和动作 */
         if (motion_can_run)
         {
-            Motion_control_run(error);
+            motion_control_ticks_handler(error);
         }
     }
 }

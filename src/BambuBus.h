@@ -52,8 +52,8 @@ extern "C"
     extern void BambuBus_init();
     extern bambu_bus_package_type_t BambuBus_run(void);
 
-    extern bool bambu_bus_load_storage_data(void);
-    extern void Bambubus_set_need_to_save();
+    bool bambu_bus_load_storage_data(void);
+    void bambu_bus_need_to_save(void);
     extern int get_now_filament_num();
     extern uint16_t get_now_BambuBus_device_type();
     extern void reset_filament_meters(int num);

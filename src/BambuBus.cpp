@@ -51,12 +51,14 @@ bool bambu_bus_load_storage_data(void)
     return false;
 }
 
-bool Bambubus_need_to_save = false;
-void Bambubus_set_need_to_save()
+static bool s_bambu_bus_need_to_save = false;
+void bambu_bus_need_to_save(void)
 {
-    Bambubus_need_to_save = true;
+    s_bambu_bus_need_to_save = true;
 }
-void Bambubus_save()
+
+/* 保存耗材信息至Flash */
+void bambu_bus_save_storage_data(void)
 {
     on_chip_flash_save(&data_save, sizeof(data_save), use_flash_addr);
 }
@@ -592,6 +594,7 @@ uint8_t get_filament_left_char(uint8_t AMS_num)
     return data;
 }
 
+/* 设置运动控制(MC)响应数据 */
 void set_motion_res_datas(unsigned char *set_buf, unsigned char AMS_num, unsigned char read_num)
 {
     float meters = 0;
@@ -599,25 +602,31 @@ void set_motion_res_datas(unsigned char *set_buf, unsigned char AMS_num, unsigne
     uint8_t motion_flag = 0x00;
     if ((read_num != 0xFF) && (read_num < 4))
     {
+        /* 料丝长度 */
         meters = data_save.filament[AMS_num][read_num].meters;
+        /* 耗材压力 */
         pressure = data_save.filament[AMS_num][read_num].pressure;
+        /* 运动状态 */
         if ((data_save.filament[AMS_num][read_num].motion_set == idle)|| (data_save.filament[AMS_num][read_num].motion_set == need_pull_back)) // idle or pull back
         {
+            /* 空闲或回抽 */
             motion_flag = 0x00;
         }
         else if ((data_save.filament[AMS_num][read_num].motion_set == need_send_out) ) // sending
         {
+            /* 出料/续料 */
             motion_flag = 0x02;
         }
         else if ((data_save.filament[AMS_num][read_num].motion_set == on_use)) // on use
         {
+            /* 使用中 */
             motion_flag = 0x04;
         }
     }
-    set_buf[0] = AMS_num;
+    set_buf[0] = AMS_num; /* 设备号 */
     set_buf[1] = 0x00;
-    set_buf[2] = motion_flag;
-    set_buf[3] = read_num; // filament number or maybe using number
+    set_buf[2] = motion_flag;   /* 运动状态 */
+    set_buf[3] = read_num;  /* 通道号 */ // filament number or maybe using number
     memcpy(set_buf + 4, &meters, sizeof(float));
     memcpy(set_buf + 8, &pressure, sizeof(uint16_t));
     set_buf[24] = get_filament_left_char(AMS_num);
@@ -632,18 +641,23 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
     {
         if (read_num < 4)
         {
+            /* [?] 0x03 0x00 为通道状态更新。 */
             if ((statu_flags == 0x03) && (fliment_motion_flag == 0x00)) // 03 00
             {
                 uint8_t numx = AMS_num * 4 + read_num;
+                /* 与当前活动通道作比较 */
                 if (data_save.actived_channel != numx) // on change
                 {
+                    /* 如果激活了新的通道，则当前通道设置为IDLE状态 */
                     if (data_save.actived_channel < 16)
                     {
                         data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4].motion_set = idle;
                         data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4].pressure = 0xFFFF;
                     }
+                    /* 记录新的活动通道 */
                     data_save.actived_channel = numx;
                 }
+                /* 设定新的活动通道状态为出料状态，压力值0x4700 */
                 data_save.filament[AMS_num][read_num].motion_set = need_send_out;
                 data_save.filament[AMS_num][read_num].pressure = 0x4700;
             }
@@ -651,6 +665,7 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
             {
                 if (data_save.filament[AMS_num][read_num].motion_set == need_send_out)
                 {
+                    /* 如果通道正在出料，则更新状态为使用中 */
                     data_save.filament[AMS_num][read_num].motion_set = on_use;
                     data_save.filament[AMS_num][read_num].meters_virtual_count = 0;
                 }
@@ -659,6 +674,7 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
                     data_save.filament[AMS_num][read_num].meters += (float)time_used / 300000; // 3.333mm/s
                     data_save.filament[AMS_num][read_num].meters_virtual_count += time_used;
                 }
+                /* 更新通道压力值 */
                 data_save.filament[AMS_num][read_num].pressure = 0x2B00;
             }
             else if ((statu_flags == 0x07) && (fliment_motion_flag == 0x7F)) // 07 7F
@@ -669,16 +685,23 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
         }
         else if ((read_num == 0xFF))
         {
+            /* [?] 0x03 0x00 为通道状态更新。 */
+            /* 通道索引为FF则代表无效通道，需要回抽耗材 */
             if ((statu_flags == 0x03) && (fliment_motion_flag == 0x00)) // 03 00(FF)
             {
                 bambu_bus_filament_channel_t *filament = &(data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4]);
                 if (data_save.actived_channel < 16)
                 {
+                    /* 如果发现有使用中的通道，则更换新状态为回抽状态 */
                     if (filament->motion_set == on_use)
+                    {
                         filament->motion_set = need_pull_back;
+                    }
+                    /* 更新压力值 */
                     filament->pressure = 0x4700;
                 }
             }
+            /* 更新指定设备的料丝状态为IDLE */
             else
             {
                 for (auto i = 0; i < 4; i++)
@@ -692,13 +715,15 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
     else if (BambuBus_address == BambuBus_AMS_lite) // AMS lite
     {
         if (read_num < 4)
-        {
+        {            
             if ((statu_flags == 0x03) && (fliment_motion_flag == 0x3F)) // 03 3F
             {
+                /* 0x03 0x3F 回抽料丝 */
                 data_save.filament[AMS_num][read_num].motion_set = need_pull_back;
             }
             else if ((statu_flags == 0x03) && (fliment_motion_flag == 0xBF)) // 03 BF
             {
+                /* 0x03 0xBF 送出料丝 */
                 data_save.actived_channel = AMS_num * 4 + read_num;
                 if (data_save.filament[AMS_num][read_num].motion_set != need_send_out)
                 {
@@ -711,14 +736,17 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
             }
             else if ((statu_flags == 0x07) && (fliment_motion_flag == 0x00)) // 07 00
             {
+                /* 0x07 0x00 开始送料 */
                 data_save.actived_channel = AMS_num * 4 + read_num;
                 if (data_save.filament[AMS_num][read_num].motion_set == need_send_out)
                 {
+                    /* 切换到使用状态 */
                     data_save.filament[AMS_num][read_num].motion_set = on_use;
                     data_save.filament[AMS_num][read_num].meters_virtual_count = 0;
                 }
                 else if (data_save.filament[AMS_num][read_num].meters_virtual_count < 10000) // 10s virtual data
                 {
+                    /* 应该是计算增量，具体没看懂啥意思。 */
                     data_save.filament[AMS_num][read_num].meters += (float)time_used / 300000; // 3.333mm/s
                     data_save.filament[AMS_num][read_num].meters_virtual_count += time_used;
                 }
@@ -728,12 +756,16 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
         }
         else if ((read_num == 0xFF) && (statu_flags == 0x01))
         {
+            /* 通道索引为FF则代表无效通道 */
             _filament_motion_state_set motion = data_save.filament[data_save.actived_channel / 4][data_save.actived_channel % 4].motion_set;
             if (motion != on_use)
+            {
+                /* 停止通道动作，设置所有通道为空闲状态 */
                 for (int i = 0; i < 4; i++)
                 {
                     data_save.filament[AMS_num][i].motion_set = idle;
                 }
+            }
         }
     }
     else if (BambuBus_address == BambuBus_none) // none
@@ -748,7 +780,9 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
         }*/
     }
     else
+    {
         return false;
+    }
     return true;
 }
 // 3D E0 3C 12 04 00 00 00 00 09 09 09 00 00 00 00 00 00 00
@@ -764,7 +798,8 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
                0x55,                   \
                0xFF, 0xFF, 0xFF, 0xFF, \
                0xFF, 0xFF, 0xFF, 0xFF,
-/*#define C_test 0x00, 0x00, 0x02, 0x02, \
+/*
+#define C_test 0x00, 0x00, 0x02, 0x02, \
                0x00, 0x00, 0x00, 0x00, \
                0x00, 0x00, 0x00, 0xC0, \
                0x36, 0x00, 0x00, 0x00, \
@@ -775,7 +810,7 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
                0x01, 0x01, 0x01, 0x01,
 00 00 02 02 EB 8F CA 3F 49 48 E7 1C 97 00 E7 1B F3 FF F2 FF 00 00 90 00 75 F8 EE FC F0 B6 B8 F8 B0 00 00 00 00 FF FF FF FF*/
 /*
-#define C_test 0x00, 0x00, 0x02, 0x01, \
+#define C_test  0x00, 0x00, 0x02, 0x01, \
                 0xF8, 0x65, 0x30, 0xBF, \
                 0x00, 0x00, 0x28, 0x03, \
                 0x2A, 0x03, 0x6F, 0x00, \
@@ -791,9 +826,9 @@ void send_for_motion_short(unsigned char *buf, int length)
 {
     /* 这个package_num是干啥用的。 */
     Cxx_res[1] = 0xC0 | (package_num << 3);
-    unsigned char AMS_num = buf[5];
+    unsigned char AMS_num = buf[5]; /* 设备索引 */
     unsigned char statu_flags = buf[6];
-    unsigned char read_num = buf[7];
+    unsigned char read_num = buf[7]; /* 通道索引 */
     unsigned char fliment_motion_flag = buf[8];
 
     if (!set_motion(AMS_num, read_num, statu_flags, fliment_motion_flag))
@@ -1224,8 +1259,10 @@ void update_filament_info_resp(unsigned char *buf, int length)
     memcpy(&data_save.filament[AMS_num][read_num].temperature_min, buf + 19, 2);
     memcpy(&data_save.filament[AMS_num][read_num].temperature_max, buf + 21, 2);
     memcpy(data_save.filament[AMS_num][read_num].name, buf + 23, sizeof(data_save.filament[AMS_num][read_num].name));
+    /* 发送响应信息至主机 */
     bambu_bus_send_response(s_update_filament_resp_temp, sizeof(s_update_filament_resp_temp));
-    Bambubus_set_need_to_save();
+    /* 设定保存标记，后续在必要时保存数据到Flash。 */
+    bambu_bus_need_to_save();
 }
 
 
@@ -1284,8 +1321,10 @@ bambu_bus_package_type_t BambuBus_run(void)
             // send_for_NFC_detect(buf_X, data_length);
             break;
         case BambuBus_package_set_filament: /* 短包，更新耗材信息 */
+        {
             update_filament_info_resp(s_usart_rev_dump, data_length);
             break;
+        }
         default:
             break;
         }
@@ -1302,11 +1341,12 @@ bambu_bus_package_type_t BambuBus_run(void)
             i->motion_set=idle;
         }*/
     }
-    if (Bambubus_need_to_save)
+    /* 保存耗材信息至flash */
+    if (s_bambu_bus_need_to_save)
     {
-        Bambubus_save();
+        bambu_bus_save_storage_data();
         time_set = get_time64() + 1000;
-        Bambubus_need_to_save = false;
+        s_bambu_bus_need_to_save = false;
     }
     // HAL_UART_Transmit(&use_Serial.handle,&s,1,1000);
 

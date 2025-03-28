@@ -86,20 +86,20 @@ typedef enum _e_filament_motion_
 class _MOTOR_CONTROL
 {
 public:
-    int motion = 0;
-    int CHx = 0;
-    uint64_t motor_stop_time = 0;
-    MOTOR_PID PID;
+    int m_motion = 0;
+    int m_channel_idx = 0;
+    uint64_t m_motor_stop_time = 0;
+    MOTOR_PID m_PID;
     float pwm_zero = 500;
-    float dir = 0;
+    float m_dir = 0; /* 0停机，-1反转，1正转，因为参与PID运算，所以做成float */
     int x1 = 0;
     _MOTOR_CONTROL(int _CHx)
     {
-        CHx = _CHx;
-        motor_stop_time = 0;
-        motion = 0;
+        m_channel_idx = _CHx;
+        m_motor_stop_time = 0;
+        m_motion = 0;
     }
-
+    /* 设置PWM零点值 */
     void set_pwm_zero(float _pwm_zero)
     {
         pwm_zero = _pwm_zero;
@@ -107,16 +107,16 @@ public:
     void set_motion(int _motion, uint64_t over_time)
     {
         uint64_t time_now = get_time64();
-        motor_stop_time = time_now + over_time;
-        if (motion != _motion)
+        m_motor_stop_time = time_now + over_time;
+        if (m_motion != _motion)
         {
-            motion = _motion;
-            PID.clear();
+            m_motion = _motion;
+            m_PID.clear();
         }
     }
     int get_motion()
     {
-        return motion;
+        return m_motion;
     }
     void run(float now_speed)
     {
@@ -124,23 +124,23 @@ public:
         uint64_t time_now = get_time64();
         static uint64_t time_last = 0;
         float speed_set = 0;
-        if (time_now >= motor_stop_time)
+        if (time_now >= m_motor_stop_time)
         {
-            motion = filament_motion_no_resistance;
+            m_motion = filament_motion_no_resistance;
         }
-        if (motion == filament_motion_no_resistance)
+        if (m_motion == filament_motion_no_resistance)
         {
-            PID.clear();
-            Motion_control_set_PWM(CHx, 0);
+            m_PID.clear();
+            Motion_control_set_PWM(m_channel_idx, 0);
             return;
         }
-        if (motion == filament_motion_stop) // just stop
+        if (m_motion == filament_motion_stop) // just stop
         {
-            PID.clear();
-            Motion_control_set_PWM(CHx, 0);
+            m_PID.clear();
+            Motion_control_set_PWM(m_channel_idx, 0);
             return;
         }
-        if (motion == filament_motion_send) // send
+        if (m_motion == filament_motion_send) // send
         {
             if (device_type == BambuBus_AMS)
             {
@@ -149,20 +149,20 @@ public:
                 speed_set = 50;
             }
         }
-        if (motion == filament_motion_send_pressure)
+        if (m_motion == filament_motion_send_pressure)
         {
             speed_set = 20;
         }
-        if (motion == filament_motion_slow_send) // slowly send
+        if (m_motion == filament_motion_slow_send) // slowly send
         {
             speed_set = 3;
         }
-        if (motion == filament_motion_pull) // pull
+        if (m_motion == filament_motion_pull) // pull
         {
             speed_set = -50;
         }
 
-        if (motion == filament_motion_less_pressure) // less pressure
+        if (m_motion == filament_motion_less_pressure) // less pressure
         {
             // 缓冲时压力不会太小 默认：10
             if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 辅助送料速度
@@ -178,12 +178,12 @@ public:
                 speed_set = 10;
             }
         }
-        if (motion == filament_motion_over_pressure) // over pressure
+        if (m_motion == filament_motion_over_pressure) // over pressure
         {
             speed_set = -10;
         }
         x1 = speed_set;
-        float x = dir * PID.caculate(now_speed - speed_set, (float)(time_now - time_last) / 1000);
+        float x = m_dir * m_PID.caculate(now_speed - speed_set, (float)(time_now - time_last) / 1000);
 
         if (x > 1)
             x += pwm_zero;
@@ -201,7 +201,7 @@ public:
             x = -PWM_lim;
         }
 
-        Motion_control_set_PWM(CHx, x);
+        Motion_control_set_PWM(m_channel_idx, x);
         time_last = time_now;
     }
 };
@@ -491,7 +491,7 @@ void motor_motion_run(int error)
     }
 }
 
-void Motion_control_run(int error)
+void motion_control_ticks_handler(int error)
 {
     /* 更新缓冲器状态 */    
     MC_PULL_key_read();
@@ -778,7 +778,7 @@ void MOTOR_init()
     {
         Motion_control_set_PWM(index, 0);
         MOTOR_CONTROL[index].set_pwm_zero(500);
-        MOTOR_CONTROL[index].dir = Motion_control_data_save.Motion_control_dir[index];
+        MOTOR_CONTROL[index].m_dir = Motion_control_data_save.Motion_control_dir[index];
     }
 }
 
