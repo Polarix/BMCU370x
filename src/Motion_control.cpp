@@ -157,9 +157,9 @@ public:
         {
             speed_set = 3;
         }
-        if (m_motion == filament_motion_pull) // pull
+        if (m_motion == filament_motion_pull) // pull 退料调速
         {
-            speed_set = -50;
+            speed_set = -50; // AMS
         }
 
         if (m_motion == filament_motion_less_pressure) // less pressure
@@ -420,7 +420,7 @@ void motor_motion_switch()
         case need_pull_back:
             RGB_set(num, 0xFF, 0x00, 0xFF);
             filament_now_position[num] = filament_pulling_back;
-            MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
+            // MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
             break;
         case on_use:
         {
@@ -456,8 +456,8 @@ void motor_motion_switch()
 // 根据AMS模拟器的信息，来调度电机
 void motor_motion_run(int error)
 {   // 退料时间
-    uint64_t A1X_OUT_TIME = 2000;
-    uint64_t P1X_OUT_TIME = 3500;
+    uint64_t A1X_OUT_TIME = 2300;
+    uint64_t P1X_OUT_TIME = 3100;
     uint64_t OUT_TIME = 8000;
     uint16_t device_type = get_now_BambuBus_device_type();
 
