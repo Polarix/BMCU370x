@@ -63,7 +63,7 @@ void bambu_bus_save_storage_data(void)
     on_chip_flash_save(&data_save, sizeof(data_save), use_flash_addr);
 }
 
-int get_now_filament_num()
+int bambu_bus_get_actived_filament(void)
 {
     return data_save.actived_channel;
 }
@@ -133,12 +133,18 @@ bool get_filament_online(int num)
     }
     return result;
 }
-void set_filament_motion(int num, _filament_motion_state_set motion)
+
+/* 获取耗材丝状态 */
+/* 此函数被MC模块调用，用于更新各通道的运动状态，用于通信反馈 */
+void bambu_bus_set_filament_motion(int num, _filament_motion_state_set motion)
 {
     if (num < 16)
         data_save.filament[num / 4][num % 4].motion_set = motion;
 }
-_filament_motion_state_set get_filament_motion(int num)
+
+/* 获取耗材丝状态 */
+/* 此函数被MC模块调用，用于根据各通道的设定值更新电机的运动状态 */
+_filament_motion_state_set bambu_bus_get_filament_motion(int num)
 {
     if (num < 16)
         return data_save.filament[num / 4][num % 4].motion_set;
@@ -147,7 +153,7 @@ _filament_motion_state_set get_filament_motion(int num)
 }
 
 /* 当前是否在打印中 */
-bool BambuBus_if_on_print()
+bool bambu_bus_is_on_printing(void)
 {
     bool on_print = false;
     /* 逐一判断各个通道的状态，只要不是IDLE就是在使用中，使用中就意味着正在打印。 */
@@ -635,6 +641,8 @@ void set_motion_res_datas(unsigned char *set_buf, unsigned char AMS_num, unsigne
     memcpy(set_buf + 8, &pressure, sizeof(uint16_t));
     set_buf[24] = get_filament_left_char(AMS_num);
 }
+
+/* 更新挤出电机的状态 */
 bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char statu_flags, unsigned char fliment_motion_flag)
 {
     static uint64_t time_last = 0;
@@ -669,12 +677,16 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
             {
                 if (data_save.filament[AMS_num][read_num].motion_set == need_send_out)
                 {
-                    /* 如果通道正在出料，则更新状态为使用中 */
+                    /* need_send_out状态：当前没有通道正在激活和使用，但是有一个通道被指定向挤出机中送料，即将被使用。 */
+                    /* 如果通道正在出料(need_send_out)，则更新状态为使用中 */
+                    /* 出料状态下首次收到这个指令时清空耗材长度计数(meters_virtual_count)并切换状态至使用中(on_use) */
                     data_save.filament[AMS_num][read_num].motion_set = on_use;
                     data_save.filament[AMS_num][read_num].meters_virtual_count = 0;
                 }
                 else if (data_save.filament[AMS_num][read_num].meters_virtual_count < 10000) // 10s virtual data
                 {
+                    /* 使用中状态下(on_use)状态下接收到这个指令要累加耗材计数。 */
+                    /* meters累加值是时间？为什么meters是浮点但meters_virtual_count是整数？怀疑有歧义。 */
                     data_save.filament[AMS_num][read_num].meters += (float)time_used / 300000; // 3.333mm/s
                     data_save.filament[AMS_num][read_num].meters_virtual_count += time_used;
                 }
@@ -701,7 +713,7 @@ bool set_motion(unsigned char AMS_num, unsigned char read_num, unsigned char sta
                     {
                         filament->motion_set = need_pull_back;
                     }
-                    /* 更新压力值 */
+                    /* 更新压力值？ */
                     filament->pressure = 0x4700;
                 }
             }
@@ -828,7 +840,7 @@ unsigned char Cxx_res[] = {0x3D, 0xE0, 0x2C, 0x1A, 0x03,
                            0x90, 0xE4};
 void send_for_motion_short(unsigned char *buf, int length)
 {
-    /* 这个package_num是干啥用的。 */
+    /* 这个package_num是干啥用的？ */
     Cxx_res[1] = 0xC0 | (package_num << 3);
     unsigned char AMS_num = buf[5]; /* 设备索引 */
     unsigned char statu_flags = buf[6];

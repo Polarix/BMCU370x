@@ -379,11 +379,13 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
             }
             uint64_t time = current_time - motor_reverse_start_time[i];
 
-            if (time > OUT_TIME) { // 到达停止时间
+            if (time > OUT_TIME)
+            {
+                /* 到达停止时间 */
                 MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100); // 停止电机
                 MOTOR_CONTROL[i].set_motion(filament_motion_no_resistance, 100); // 设置无阻力模式
                 filament_now_position[i] = filament_idle; // 设置当前位置为空闲
-                set_filament_motion(i, idle); // 设置当前耗材状态为空闲
+                bambu_bus_set_filament_motion(i, idle); // 设置当前耗材状态为空闲
                 motor_reverse_start_time[i] = 0; // 重置反转开始时间
             }
             wait = true;
@@ -392,17 +394,19 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
     return wait;
 }
 
-void motor_motion_switch()
+void motor_motion_switch(void)
 {
-    int num = get_now_filament_num();
+    int num = bambu_bus_get_actived_filament();
     uint16_t device_type = get_now_BambuBus_device_type();
     if (num == 0xFF)
         return;
     if (get_filament_online(num))
     {
-        switch (get_filament_motion(num))
+        /* 在这里获得相应通道的运行控制期望状态。 */
+        switch (bambu_bus_get_filament_motion(num))
         {
-        case need_send_out:
+        case need_send_out: /* 当前没有活动通道，需要BMCU送料到挤出机。 */
+            /* 绿灯 */
             RGB_set(num, 0x00, 0xFF, 0x00);
             filament_now_position[num] = filament_sending_out;
             if (device_type == BambuBus_AMS_lite)
@@ -417,12 +421,13 @@ void motor_motion_switch()
                 MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
             }
             break;
-        case need_pull_back:
+        case need_pull_back: /* 回抽 */
+            /* 紫灯 */
             RGB_set(num, 0xFF, 0x00, 0xFF);
             filament_now_position[num] = filament_pulling_back;
             // MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
             break;
-        case on_use:
+        case on_use:    /* 使用中/打印中，持续送料。 */
         {
             static uint64_t time_end = 0;
             uint64_t time_now = get_time64();
@@ -441,12 +446,14 @@ void motor_motion_switch()
                 else // 已经超过3秒，如果未触发缓冲则紧急刹车。
                     MOTOR_CONTROL[num].set_motion(filament_motion_stop, 20);
             }
+            /* 白灯 */
             RGB_set(num, 0xFF, 0xFF, 0xFF); // 设置RGB灯为白色，进入使用状态。
             break;
         }
-        case idle:
+        case idle:  /* 空闲状态，未使用 */
             filament_now_position[num] = filament_idle;
             MOTOR_CONTROL[num].set_motion(filament_motion_no_resistance, 100);
+            /* 空闲，蓝色，低亮度 */
             RGB_set(num, 0x00, 0x00, 0x37);
             break;
         }
@@ -782,7 +789,7 @@ void MOTOR_init()
     }
 }
 
-void Motion_control_init()
+void Motion_control_init(void)
 {
 
     MC_PULL_key_init();

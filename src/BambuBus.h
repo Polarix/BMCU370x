@@ -53,16 +53,16 @@ extern "C"
     extern bambu_bus_package_type_t BambuBus_run(void);
     bool bambu_bus_load_storage_data(void);
     void bambu_bus_need_to_save(void);
-    extern int get_now_filament_num();
+    extern int bambu_bus_get_actived_filament(void);
     extern uint16_t get_now_BambuBus_device_type();
     extern void reset_filament_meters(int num);
     extern void add_filament_meters(int num, float meters);
     extern float get_filament_meters(int num);
     extern void set_filament_online(int num, bool if_online);
     extern bool get_filament_online(int num);
-    _filament_motion_state_set get_filament_motion(int num);
-    extern void set_filament_motion(int num, _filament_motion_state_set motion);
-    extern bool BambuBus_if_on_print();
+    _filament_motion_state_set bambu_bus_get_filament_motion(int num);
+    extern void bambu_bus_set_filament_motion(int num, _filament_motion_state_set motion);
+    extern bool bambu_bus_is_on_printing(void);
 #ifdef __cplusplus
 }
 #endif
