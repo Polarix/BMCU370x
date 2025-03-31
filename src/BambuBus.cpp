@@ -434,7 +434,7 @@ bool need_debug = false;
 /* 计算CRC值并发送响应数据 */
 void bambu_bus_send_response(uint8_t *data, int data_length)
 {
-
+    /* 计算包头的CRC8校验值。 */
     crc_8.restart();
     if (data[1] & 0x80)
     {
@@ -454,8 +454,9 @@ void bambu_bus_send_response(uint8_t *data, int data_length)
         }
         data[6] = crc_8.calc();
     }
+    /* 计算整包的CRC16校验值。 */
     crc_16.restart();
-    data_length -= 2;
+    data_length -= 2; /* 忽略包尾的2字节CRC16校验值。 */
     for (auto i = 0; i < data_length; i++)
     {
         crc_16.add(data[i]);
@@ -464,6 +465,7 @@ void bambu_bus_send_response(uint8_t *data, int data_length)
     data[(data_length)] = num & 0xFF;
     data[(data_length + 1)] = num >> 8;
     data_length += 2;
+    /* 通过USART发送响应数据。 */
     bambu_bus_bsp_uart_write(data, data_length);
     if (need_debug)
     {
@@ -585,10 +587,12 @@ uint8_t get_filament_left_char(uint8_t AMS_num)
         {
             data |= (0x1 << i) << i; // 1<<(2*i)
             if (BambuBus_address == BambuBus_AMS)
+            {
                 if (data_save.filament[AMS_num][i].motion_set != idle)
                 {
                     data |= (0x2 << i) << i; // 2<<(2*i)
                 }
+            }
         }
     }
     return data;
@@ -597,7 +601,7 @@ uint8_t get_filament_left_char(uint8_t AMS_num)
 /* 设置运动控制(MC)响应数据 */
 void set_motion_res_datas(unsigned char *set_buf, unsigned char AMS_num, unsigned char read_num)
 {
-    float meters = 0;
+    float meters = 0; /* 这个为什么是浮点型？ */
     uint16_t pressure = 0xFFFF;
     uint8_t motion_flag = 0x00;
     if ((read_num != 0xFF) && (read_num < 4))
@@ -623,7 +627,7 @@ void set_motion_res_datas(unsigned char *set_buf, unsigned char AMS_num, unsigne
             motion_flag = 0x04;
         }
     }
-    set_buf[0] = AMS_num; /* 设备号 */
+    set_buf[0] = AMS_num; /* 设备索引 */
     set_buf[1] = 0x00;
     set_buf[2] = motion_flag;   /* 运动状态 */
     set_buf[3] = read_num;  /* 通道号 */ // filament number or maybe using number
@@ -835,6 +839,7 @@ void send_for_motion_short(unsigned char *buf, int length)
         return;
 
     set_motion_res_datas(Cxx_res + 5, AMS_num, read_num);
+
     bambu_bus_send_response(Cxx_res, sizeof(Cxx_res));
     if (package_num < 7)
         package_num++;
