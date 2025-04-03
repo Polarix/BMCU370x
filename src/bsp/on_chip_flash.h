@@ -1,6 +1,6 @@
 #ifndef _INCLUDE_ON_CHIP_FLASH_H_
 
-#include "ch32v20x_flash.h"
+#include <stdint.h>
 #include <stdbool.h>
 
 #ifdef __cplusplus

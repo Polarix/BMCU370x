@@ -2,7 +2,6 @@
 
 #include "main.h"
 #define Debug_log_on
-#define Debug_log_baudrate 115200
 
 #ifdef __cplusplus
 extern "C"

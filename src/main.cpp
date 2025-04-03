@@ -28,7 +28,7 @@ void RGB_set(unsigned char CHx, unsigned char R, unsigned char G, unsigned char 
 {
     g_filament_channel_rgb[CHx].set_RGB(R, G, B, 0);
 }
-extern void bambu_bus_bsp_uart_init();
+
 extern void bambu_bus_bsp_uart_write(const void* data, uint16_t length);
 
 void setup()
@@ -43,7 +43,7 @@ void setup()
     g_filament_channel_rgb[3].set_RGB(0x00, 0x00, 0x00, 0);
     RGB_update();
     
-    BambuBus_init();
+    bambu_bus_init();
     DEBUG_INIT();
     Motion_control_init();
     delay(1);

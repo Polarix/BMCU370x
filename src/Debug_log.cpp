@@ -1,6 +1,8 @@
 #include "Debug_log.h"
 #include <inttypes.h>
 
+#define DEBUG_LOG_BAUDRATE 115200
+
 #ifdef Debug_log_on
 uint32_t stack[1000];
 //mbed::Timer USB_debug_timer;
@@ -29,7 +31,7 @@ void Debug_log_init()
     GPIO_Init(GPIOB, &GPIO_InitStructure);
 
 
-    USART_InitStructure.USART_BaudRate = Debug_log_baudrate;
+    USART_InitStructure.USART_BaudRate = DEBUG_LOG_BAUDRATE;
     USART_InitStructure.USART_WordLength = USART_WordLength_9b;
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
     USART_InitStructure.USART_Parity = USART_Parity_Even;

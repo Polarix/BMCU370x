@@ -1,10 +1,9 @@
-#pragma once
+#ifndef _INCLUDE_FLASH_SAVE_H_
 
-#include "main.h"
+#include <stdint.h>
+#include <stddef.h>
 
-#include "ch32v20x_flash.h"
+void flash_storage_init(void);
+bool flash_storage_save(void*buf,uint32_t length,uint32_t address);
 
-
-#define FLASH_PAGE_SIZE 4096
-
-extern bool Flash_saves(void*buf,uint32_t length,uint32_t address);
+#endif /* _INCLUDE_FLASH_SAVE_H_ */

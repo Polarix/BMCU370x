@@ -1,4 +1,5 @@
 #include "on_chip_flash.h"
+#include "ch32v20x_flash.h"
 
 // #define PAGE_WRITE_START_ADDR ((uint32_t)0x08008000) /* Start from 32K */
 // #define PAGE_WRITE_END_ADDR ((uint32_t)0x08009000)   /* End at 36K */

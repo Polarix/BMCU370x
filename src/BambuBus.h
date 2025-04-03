@@ -1,6 +1,8 @@
 #pragma once
 
-#include "main.h"
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
 
 #define BAMBU_BUS_VER 5
 #define BAMBU_BUS_FILAMENT_NUM 4
@@ -49,7 +51,7 @@ extern "C"
         BambuBus_AMS_lite=0x1200,
     }bambu_bus_dev_type_t;
 
-    extern void BambuBus_init();
+    extern void bambu_bus_init(void);
     extern bambu_bus_package_type_t BambuBus_run(void);
     bool bambu_bus_load_storage_data(void);
     void bambu_bus_need_to_save(void);

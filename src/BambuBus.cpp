@@ -1,4 +1,8 @@
 #include "BambuBus.h"
+#include "Flash_saves.h"
+#include <bsp/rs485_bsp.h>
+#include <bsp/on_chip_flash.h>
+#include "Debug_log.h"
 #include "CRC16.h"
 #include "CRC8.h"
 
@@ -176,7 +180,7 @@ uint8_t s_usart_rev_dump[1000]; /* 串口接收完成后的内容会被转储到
 static CRC8 s_rx_crc_cala(0x39, 0x66, 0x00, false, false);
 
 /* 串口中断服务函数 */
-void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
+static void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
 {
     static int _index = 0;
     static int length = 500;
@@ -256,77 +260,12 @@ void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
 #include <stdio.h>
 
 /* 通过DMA发送Respose给打印机。 */
-DMA_InitTypeDef Bambubus_DMA_InitStructure;
 void bambu_bus_bsp_uart_write(const void* data, uint16_t length)
 {
-    DMA_DeInit(DMA1_Channel4);
-    // Configure DMA1 channel 4 for USART1 TX
-    Bambubus_DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)data;
-    Bambubus_DMA_InitStructure.DMA_BufferSize = length;
-    DMA_Init(DMA1_Channel4, &Bambubus_DMA_InitStructure);
-    DMA_Cmd(DMA1_Channel4, ENABLE);
-    GPIOA->BSHR = GPIO_Pin_12;
-    // Enable USART1 DMA send
-    USART_DMACmd(USART1, USART_DMAReq_Tx, ENABLE);
+    rs_485_bsp_write(data, length);
 }
 
-void bambu_bus_bsp_uart_init()
-{
-    GPIO_InitTypeDef GPIO_InitStructure = {0};
-    USART_InitTypeDef USART_InitStructure = {0};
-    NVIC_InitTypeDef NVIC_InitStructure = {0};
-
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
-    RCC_AHBPeriphClockCmd(RCC_AHBPeriph_DMA1, ENABLE);
-
-    /* USART1 TX-->A.9   RX-->A.10 */
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9; // TX
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10; // RX
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_12; // DE
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-    GPIOA->BCR = GPIO_Pin_12;
-
-    USART_InitStructure.USART_BaudRate = 1250000;
-    USART_InitStructure.USART_WordLength = USART_WordLength_9b;
-    USART_InitStructure.USART_StopBits = USART_StopBits_1;
-    USART_InitStructure.USART_Parity = USART_Parity_Even;
-    USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-    USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
-
-    USART_Init(USART1, &USART_InitStructure);
-    USART_ITConfig(USART1, USART_IT_RXNE, ENABLE);
-    USART_ITConfig(USART1, USART_IT_TC, ENABLE);
-
-    NVIC_InitStructure.NVIC_IRQChannel = USART1_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-
-    // Configure DMA1 channel 4 for USART1 TX
-    Bambubus_DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&USART1->DATAR;
-    Bambubus_DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)0;
-    Bambubus_DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;
-    Bambubus_DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
-    Bambubus_DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
-    Bambubus_DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
-    Bambubus_DMA_InitStructure.DMA_Priority = DMA_Priority_VeryHigh;
-    Bambubus_DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
-    Bambubus_DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
-    Bambubus_DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
-    Bambubus_DMA_InitStructure.DMA_BufferSize = 0;
-
-    USART_Cmd(USART1, ENABLE);
-}
-
+#if 0
 extern "C" void USART1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART1_IRQHandler(void)
 {
@@ -341,10 +280,14 @@ void USART1_IRQHandler(void)
         GPIOA->BCR = GPIO_Pin_12;
     }
 }
+#endif
 
-void BambuBus_init()
+void bambu_bus_init(void)
 {
+    flash_storage_init();
+
     bool _init_ready = bambu_bus_load_storage_data();
+
     crc_8.reset(0x39, 0x66, 0, false, false);
     crc_16.reset(0x1021, 0x913D, 0, false, false);
 
@@ -418,8 +361,10 @@ void BambuBus_init()
             j.meters = 0;
         }
     }
+    /* 注册字节接收处理函数，提前注册以防止漏接收字节。 */
+    rs_485_bsp_register_byte_rev_callback(banbu_bus_byte_receive_handler);
     /* 初始化RS485总线。 */
-    bambu_bus_bsp_uart_init();
+    rs_485_bsp_init();
 }
 
 bool package_check_crc16(const uint8_t *data, int data_length)
