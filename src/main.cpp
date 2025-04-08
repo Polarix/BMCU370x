@@ -5,8 +5,8 @@
 
 extern void debug_send_run();
 #include "WS2812.h"
-WS2812_class g_sys_rgb;
-WS2812_class g_filament_channel_rgb[4];
+CWS2812 g_sys_rgb;
+CWS2812 g_filament_channel_rgb[4];
 
 void RGB_init()
 {
@@ -24,28 +24,29 @@ void RGB_update()
     g_filament_channel_rgb[2].updata();
     g_filament_channel_rgb[3].updata();
 }
-void RGB_set(unsigned char CHx, unsigned char R, unsigned char G, unsigned char B)
+
+void set_filament_state_led(uint8_t channel, uint8_t R, uint8_t G, uint8_t B)
 {
-    g_filament_channel_rgb[CHx].set_RGB(R, G, B, 0);
+    g_filament_channel_rgb[channel].set_rgb(R, G, B, 0);
 }
 
 extern void bambu_bus_bsp_uart_write(const void* data, uint16_t length);
 
-void setup()
+void setup(void)
 {
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
     GPIO_PinRemapConfig(GPIO_Remap_PD01, ENABLE);
     RGB_init();
-    g_sys_rgb.set_RGB(0x00, 0x00, 0x00, 0);
-    g_filament_channel_rgb[0].set_RGB(0x00, 0x00, 0x00, 0);
-    g_filament_channel_rgb[1].set_RGB(0x00, 0x00, 0x00, 0);
-    g_filament_channel_rgb[2].set_RGB(0x00, 0x00, 0x00, 0);
-    g_filament_channel_rgb[3].set_RGB(0x00, 0x00, 0x00, 0);
+    g_sys_rgb.set_rgb(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[0].set_rgb(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[1].set_rgb(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[2].set_rgb(0x00, 0x00, 0x00, 0);
+    g_filament_channel_rgb[3].set_rgb(0x00, 0x00, 0x00, 0);
     RGB_update();
     
     bambu_bus_init();
     DEBUG_INIT();
-    Motion_control_init();
+    motion_control_init();
     delay(1);
 }
 
@@ -76,7 +77,7 @@ void loop(void)
             if (stu == BambuBus_package_ERROR) // offline
             {
                 error = -1;
-                g_sys_rgb.set_RGB(0x30, 0x00, 0x00, 0);
+                g_sys_rgb.set_rgb(0x30, 0x00, 0x00, 0);
                 RGB_update();
             }
             else // have data
@@ -85,9 +86,9 @@ void loop(void)
                 if (stu == BambuBus_package_heartbeat)
                 {
                     if(device_type==BambuBus_AMS_lite)
-                        g_sys_rgb.set_RGB(0x00, 0x00, 0x10, 0);
+                        g_sys_rgb.set_rgb(0x00, 0x00, 0x10, 0);
                     else if(device_type==BambuBus_AMS)
-                        g_sys_rgb.set_RGB(0x10, 0x10, 0x00, 0);
+                        g_sys_rgb.set_rgb(0x10, 0x10, 0x00, 0);
                     RGB_update();
                 }
             }

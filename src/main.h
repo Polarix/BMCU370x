@@ -33,6 +33,7 @@
     while(!(SysTick->SR & 1));\
     SysTick->CTLR &= ~(1 << 0);\
 }
-extern void RGB_set(unsigned char CHx,unsigned char R, unsigned char G, unsigned char B);
+
+extern void set_filament_state_led(uint8_t channel, uint8_t R, uint8_t G, uint8_t B);
 
 //#include "AMCU.h"

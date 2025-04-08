@@ -1,14 +1,17 @@
-#pragma once
-#include "main.h"
+#ifndef _INCLUDE_CLASS_AS5600_DRV_H_
+#define _INCLUDE_CLASS_AS5600_DRV_H_
+
+#include <stdint.h>
+#include <stddef.h>
+#include <ch32v20x_gpio.h>
 
 class AS5600_soft_IIC_many
 {
 public:
-    AS5600_soft_IIC_many();
-    ~AS5600_soft_IIC_many();
+    explicit AS5600_soft_IIC_many(void);
+    virtual ~AS5600_soft_IIC_many(void);
     void init(uint32_t* GPIO_SCL, uint32_t* GPIO_SDA,int num);
 
-    
     bool *online;
     enum _AS5600_magnet_stu
     {
@@ -42,3 +45,5 @@ private:
     void read_reg8(uint8_t reg);
     void read_reg16(uint8_t reg);
 };
+
+#endif /* _INCLUDE_CLASS_AS5600_DRV_H_ */

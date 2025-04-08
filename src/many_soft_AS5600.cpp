@@ -1,5 +1,6 @@
 
 #include "many_soft_AS5600.h"
+#include <Arduino.h>
 
 #define I2C_DELAY 1
 #define SET_H(port, pin)                   \

@@ -1,48 +1,49 @@
-#include "WS2812.h"
+#include <WS2812.h>
 #include <stdlib.h>
+#include <Arduino.h>
 
-#define RGB_H() port->BSHR = pin
-#define RGB_L() port->BCR = pin
+#define RGB_H() m_gpio_port->BSHR = m_pin
+#define RGB_L() m_gpio_port->BCR = m_pin
 
-void WS2812_class::init(unsigned char _num, uint32_t _GPIO_pin)
+void CWS2812::init(uint8_t index, uint32_t _GPIO_pin)
 {
-    num = _num;
-    RGB_buf = new uint32_t[num * 3];
-    GPIO_pin = _GPIO_pin;
-    port = get_GPIO_Port(CH_PORT(digitalPinToPinName(GPIO_pin)));
-    pin = CH_GPIO_PIN(digitalPinToPinName(GPIO_pin));
+    m_index = index;
+    m_rgb_buf = new uint32_t[m_index * 3];
+    m_gpio_pin = _GPIO_pin;
+    m_gpio_port = get_GPIO_Port(CH_PORT(digitalPinToPinName(m_gpio_pin)));
+    m_pin = CH_GPIO_PIN(digitalPinToPinName(m_gpio_pin));
     RGB_L();
 
     pinMode(_GPIO_pin, OUTPUT);
     clear();
 }
-WS2812_class::~WS2812_class()
+CWS2812::~CWS2812(void)
 {
-    delete RGB_buf;
+    delete m_rgb_buf;
 }
 
-void WS2812_class::clear(void)
+void CWS2812::clear(void)
 {
-    unsigned char i;
-    for (i = 0; i < num * 3; i++)
+    uint8_t i;
+    for (i = 0; i < m_index * 3; i++)
     {
-        RGB_buf[i] = 0;
+        m_rgb_buf[i] = 0;
     }
 }
-void WS2812_class::RST(void)
+void CWS2812::reset(void)
 {
     RGB_L();
     delayMicroseconds(50);
 }
 
-void WS2812_class::updata()
+void CWS2812::updata(void)
 {
     int i, j;
-    int max = num * 3;
+    int max = m_index * 3;
     uint32_t DATA;
     for (i = 0; i < max; i++)
     {
-        DATA = RGB_buf[i];
+        DATA = m_rgb_buf[i];
         for (j = 0; j < 24; j++)
         {
             if ((DATA >> j) & 0x01)
@@ -55,9 +56,9 @@ void WS2812_class::updata()
             __NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();__NOP();//@144Mhz
         }
     }
-    RST();
+    reset();
 }
-void WS2812_class::set_RGB(unsigned char R, unsigned char G, unsigned char B, unsigned char index)
+void CWS2812::set_rgb(uint8_t R, uint8_t G, uint8_t B, uint8_t index)
 {
     uint32_t DATA = 0;
     int i;
@@ -67,7 +68,7 @@ void WS2812_class::set_RGB(unsigned char R, unsigned char G, unsigned char B, un
         DATA |= 1;
         DATA |= ((G >> i) & 1) << 1;
     }
-    RGB_buf[index + 0] = DATA;
+    m_rgb_buf[index + 0] = DATA;
     DATA = 0;
     for (i = 0; i < 8; i++)
     {
@@ -75,7 +76,7 @@ void WS2812_class::set_RGB(unsigned char R, unsigned char G, unsigned char B, un
         DATA |= 1;
         DATA |= ((R >> i) & 1) << 1;
     }
-    RGB_buf[index + 1] = DATA;
+    m_rgb_buf[index + 1] = DATA;
     DATA = 0;
     for (i = 0; i < 8; i++)
     {
@@ -83,5 +84,5 @@ void WS2812_class::set_RGB(unsigned char R, unsigned char G, unsigned char B, un
         DATA |= 1;
         DATA |= ((B >> i) & 1) << 1;
     }
-    RGB_buf[index + 2] = DATA;
+    m_rgb_buf[index + 2] = DATA;
 }

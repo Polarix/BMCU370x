@@ -1,22 +1,26 @@
-#pragma once
-#include "main.h"
+#ifndef _INCLUDE_CLASS_WS2812_DRV_H_
+#define _INCLUDE_CLASS_WS2812_DRV_H_
 
+#include <stdint.h>
+#include <stddef.h>
+#include <ch32v20x_gpio.h>
 
-class WS2812_class
+class CWS2812
 {
 public:
-    uint32_t *RGB_buf;
-	unsigned char num;
-    uint32_t GPIO_pin;
-    WS2812_class(){}
-    ~WS2812_class();
-    void init( unsigned char _num ,uint32_t GPIO_pin);
-	void clear( void );
-	void RST( void );
-	void updata();
-	void set_RGB(unsigned char R, unsigned char G, unsigned char B, unsigned char index);
+    uint32_t* m_rgb_buf;
+	uint8_t m_index;
+    uint32_t m_gpio_pin;
+    explicit CWS2812(void){}
+    virtual ~CWS2812(void);
+    void init(uint8_t _num, uint32_t GPIO_pin);
+	void clear(void);
+	void reset(void);
+	void updata(void);
+	void set_rgb(uint8_t R, uint8_t G, uint8_t B, uint8_t index);
 private:
-    GPIO_TypeDef * port;
-    uint16_t pin;
+    GPIO_TypeDef* m_gpio_port;
+    uint16_t m_pin;
 };
 
+#endif /* _INCLUDE_CLASS_WS2812_DRV_H_ */

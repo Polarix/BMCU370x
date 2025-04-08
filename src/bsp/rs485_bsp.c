@@ -1,5 +1,7 @@
 #include <bsp/rs485_bsp.h>
-#include <ch32v20x.h>
+#include <ch32v20x_usart.h>
+#include <ch32v20x_dma.h>
+#include <ch32v20x_gpio.h>
 
 static DMA_InitTypeDef s_Bambubus_DMA_InitStructure;
 

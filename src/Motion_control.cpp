@@ -1,11 +1,16 @@
-#include "Motion_control.h"
+#include <Motion_control.h>
+#include <BambuBus.h>
+#include <many_soft_AS5600.h>
+#include "bsp/pwm_out_bsp.h"
+#include <ch32v20x_gpio.h>
+#include <Arduino.h>
+#include <time64.h>
 
 AS5600_soft_IIC_many MC_AS5600;
 uint32_t AS5600_SCL[] = {PA6, PA4, PA2, PA0};
 uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
 
-uint8_t PULL_key_stu[4] = {0, 0, 0, 0};
-uint8_t PULL_key_change[4] = {0, 0, 0, 0};
+uint8_t s_pull_key_pin_state[4] = {0, 0, 0, 0};
 #define PWM_lim 900
 
 struct alignas(4) Motion_control_save_struct
@@ -14,10 +19,11 @@ struct alignas(4) Motion_control_save_struct
     int check = 0x40614061;
 } Motion_control_data_save;
 
-#define Motion_control_save_flash_addr ((uint32_t)0x0800E000)
-bool Motion_control_read()
+#define MC_STATE_STORAGE_ADDR ((uint32_t)0x0800E000)
+
+bool motion_control_state_read(void)
 {
-    Motion_control_save_struct *ptr = (Motion_control_save_struct *)(Motion_control_save_flash_addr);
+    Motion_control_save_struct *ptr = (Motion_control_save_struct *)(MC_STATE_STORAGE_ADDR);
     if (ptr->check == 0x40614061)
     {
         memcpy(&Motion_control_data_save, ptr, sizeof(Motion_control_save_struct));
@@ -25,17 +31,17 @@ bool Motion_control_read()
     }
     return false;
 }
-void Motion_control_save()
+void motion_control_state_save(void)
 {
-    on_chip_flash_save(&Motion_control_data_save, sizeof(Motion_control_save_struct), Motion_control_save_flash_addr);
+    on_chip_flash_save(&Motion_control_data_save, sizeof(Motion_control_save_struct), MC_STATE_STORAGE_ADDR);
 }
 
-class MOTOR_PID
+class CPID
 {
 public:
-    float P = 2;
-    float I = 10;
-    float D = 0;
+    float m_P = 2;
+    float m_I = 10;
+    float m_D = 0;
     float I_save = 0;
     float E_last = 0;
     float pid_MAX = PWM_lim;
@@ -43,19 +49,19 @@ public:
     float pid_range = (pid_MAX - pid_MIN) / 2;
     void init(float P_set, float I_set)
     {
-        P = P_set;
-        I = I_set;
+        m_P = P_set;
+        m_I = I_set;
         I_save = 0;
     }
     float caculate(float E, float time_E)
     {
-        I_save += I * E * time_E;
+        I_save += m_I * E * time_E;
         if (I_save > pid_range / 2) // 对I限幅
             I_save = pid_range / 2;
         if (I_save < -pid_range / 2)
             I_save = -pid_range / 2;
 
-        float ouput_buf = P * (E + (I_save) + D * (E - E_last) / time_E);
+        float ouput_buf = m_P * (E + (I_save) + m_D * (E - E_last) / time_E);
         if (ouput_buf > pid_MAX)
             ouput_buf = pid_MAX;
         if (ouput_buf < pid_MIN)
@@ -64,7 +70,7 @@ public:
         E_last = E;
         return ouput_buf;
     }
-    void clear()
+    void clear(void)
     {
         I_save = 0;
         E_last = 0;
@@ -83,17 +89,17 @@ typedef enum _e_filament_motion_
     filament_motion_over_pressure = 101,
 }filament_motion_enum_t;
 
-class _MOTOR_CONTROL
+class CMototControl
 {
 public:
     int m_motion = 0;
     int m_channel_idx = 0;
     uint64_t m_motor_stop_time = 0;
-    MOTOR_PID m_PID;
+    CPID m_PID;
     float pwm_zero = 500;
     float m_dir = 0; /* 0停机，-1反转，1正转，因为参与PID运算，所以做成float */
     int x1 = 0;
-    _MOTOR_CONTROL(int _CHx)
+    explicit CMototControl(int _CHx)
     {
         m_channel_idx = _CHx;
         m_motor_stop_time = 0;
@@ -131,13 +137,13 @@ public:
         if (m_motion == filament_motion_no_resistance)
         {
             m_PID.clear();
-            Motion_control_set_PWM(m_channel_idx, 0);
+            pwm_out_bsp_set(m_channel_idx, 0);
             return;
         }
         if (m_motion == filament_motion_stop) // just stop
         {
             m_PID.clear();
-            Motion_control_set_PWM(m_channel_idx, 0);
+            pwm_out_bsp_set(m_channel_idx, 0);
             return;
         }
         if (m_motion == filament_motion_send) // send
@@ -201,17 +207,19 @@ public:
             x = -PWM_lim;
         }
 
-        Motion_control_set_PWM(m_channel_idx, x);
+        pwm_out_bsp_set(m_channel_idx, x);
         time_last = time_now;
     }
 };
-_MOTOR_CONTROL MOTOR_CONTROL[4] = {_MOTOR_CONTROL(0), _MOTOR_CONTROL(1), _MOTOR_CONTROL(2), _MOTOR_CONTROL(3)};
+
+CMototControl s_motor_control[4] = {CMototControl(0), CMototControl(1), CMototControl(2), CMototControl(3)};
+
 void MC_PULL_key_read(void)
 {
-    PULL_key_stu[3] = digitalRead(PB12);
-    PULL_key_stu[2] = digitalRead(PB13);
-    PULL_key_stu[1] = digitalRead(PB14);
-    PULL_key_stu[0] = digitalRead(PB15);
+    s_pull_key_pin_state[3] = digitalRead(PB12);
+    s_pull_key_pin_state[2] = digitalRead(PB13);
+    s_pull_key_pin_state[1] = digitalRead(PB14);
+    s_pull_key_pin_state[0] = digitalRead(PB15);
 }
 void MC_PULL_key_init()
 {
@@ -260,43 +268,6 @@ void MC_ONLINE_key_init()
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;
     GPIO_Init(GPIOD, &GPIO_InitStructure);
     MC_ONLINE_key_read();
-}
-
-void Motion_control_set_PWM(uint8_t CHx, int PWM)
-{
-    uint16_t set1 = 0, set2 = 0;
-    if (PWM > 0)
-    {
-        set1 = PWM;
-    }
-    else if (PWM < 0)
-    {
-        set2 = -PWM;
-    }
-    else // PWM==0
-    {
-        set1 = 1000;
-        set2 = 1000;
-    }
-    switch (CHx)
-    {
-    case 3:
-        TIM_SetCompare1(TIM2, set1);
-        TIM_SetCompare2(TIM2, set2);
-        break;
-    case 2:
-        TIM_SetCompare1(TIM3, set1);
-        TIM_SetCompare2(TIM3, set2);
-        break;
-    case 1:
-        TIM_SetCompare1(TIM4, set1);
-        TIM_SetCompare2(TIM4, set2);
-        break;
-    case 0:
-        TIM_SetCompare3(TIM4, set1);
-        TIM_SetCompare4(TIM4, set2);
-        break;
-    }
 }
 
 #define AS5600_PI 3.1415926535897932384626433832795
@@ -370,8 +341,8 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
     {
         if (filament_now_position[i] == filament_pulling_back)
         {
-            RGB_set(i, 0xFF, 0x00, 0xFF); // 设置RGB灯为紫色
-            MOTOR_CONTROL[i].set_motion(filament_motion_pull, 100); // 驱动电机退料
+            set_filament_state_led(i, 0xFF, 0x00, 0xFF); // 设置RGB灯为紫色
+            s_motor_control[i].set_motion(filament_motion_pull, 100); // 驱动电机退料
             uint64_t current_time = get_time64();
             if (motor_reverse_start_time[i] == 0) // 如果反转开始时间未记录，则记录当前时间
             {
@@ -382,8 +353,8 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
             if (time > OUT_TIME)
             {
                 /* 到达停止时间 */
-                MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100); // 停止电机
-                MOTOR_CONTROL[i].set_motion(filament_motion_no_resistance, 100); // 设置无阻力模式
+                s_motor_control[i].set_motion(filament_motion_stop, 100); // 停止电机
+                s_motor_control[i].set_motion(filament_motion_no_resistance, 100); // 设置无阻力模式
                 filament_now_position[i] = filament_idle; // 设置当前位置为空闲
                 bambu_bus_set_filament_motion(i, idle); // 设置当前耗材状态为空闲
                 motor_reverse_start_time[i] = 0; // 重置反转开始时间
@@ -407,23 +378,23 @@ void motor_motion_switch(void)
         {
         case need_send_out: /* 当前没有活动通道，需要BMCU送料到挤出机。 */
             /* 绿灯 */
-            RGB_set(num, 0x00, 0xFF, 0x00);
+            set_filament_state_led(num, 0x00, 0xFF, 0x00);
             filament_now_position[num] = filament_sending_out;
             if (device_type == BambuBus_AMS_lite)
             {
-                if (PULL_key_stu[num] == 0)
-                    MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+                if (s_pull_key_pin_state[num] == 0)
+                    s_motor_control[num].set_motion(filament_motion_send, 100);
                 else
-                    MOTOR_CONTROL[num].set_motion(filament_motion_send_pressure, 100);
+                    s_motor_control[num].set_motion(filament_motion_send_pressure, 100);
             }
             else if (device_type == BambuBus_AMS)
             {
-                MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+                s_motor_control[num].set_motion(filament_motion_send, 100);
             }
             break;
         case need_pull_back: /* 回抽 */
             /* 紫灯 */
-            RGB_set(num, 0xFF, 0x00, 0xFF);
+            set_filament_state_led(num, 0xFF, 0x00, 0xFF);
             filament_now_position[num] = filament_pulling_back;
             // MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
             break;
@@ -439,22 +410,22 @@ void motor_motion_switch(void)
             }
             else if (filament_now_position[num] == filament_using) // 已经进入使用状态,即打印机已经检测到耗材丝。
             {
-                if (PULL_key_stu[num] == 0) // 如果触发缓冲，则缓冲状态。
-                    MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20); // 缓冲状态。
+                if (s_pull_key_pin_state[num] == 0) // 如果触发缓冲，则缓冲状态。
+                    s_motor_control[num].set_motion(filament_motion_less_pressure, 20); // 缓冲状态。
                 else if (time_now < time_end) // 如果是刚进料且在前三秒，使用慢速送料，避免没被工具头咬合。
-                    MOTOR_CONTROL[num].set_motion(filament_motion_slow_send, 20); // 缓慢
+                    s_motor_control[num].set_motion(filament_motion_slow_send, 20); // 缓慢
                 else // 已经超过3秒，如果未触发缓冲则紧急刹车。
-                    MOTOR_CONTROL[num].set_motion(filament_motion_stop, 20);
+                    s_motor_control[num].set_motion(filament_motion_stop, 20);
             }
             /* 白灯 */
-            RGB_set(num, 0xFF, 0xFF, 0xFF); // 设置RGB灯为白色，进入使用状态。
+            set_filament_state_led(num, 0xFF, 0xFF, 0xFF); // 设置RGB灯为白色，进入使用状态。
             break;
         }
         case idle:  /* 空闲状态，未使用 */
             filament_now_position[num] = filament_idle;
-            MOTOR_CONTROL[num].set_motion(filament_motion_no_resistance, 100);
+            s_motor_control[num].set_motion(filament_motion_no_resistance, 100);
             /* 空闲，蓝色，低亮度 */
-            RGB_set(num, 0x00, 0x00, 0x37);
+            set_filament_state_led(num, 0x00, 0x00, 0x37);
             break;
         }
     }
@@ -487,14 +458,14 @@ void motor_motion_run(int error)
     else
     {
         for (int i = 0; i < 4; i++)
-            MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
+            s_motor_control[i].set_motion(filament_motion_stop, 100);
     }
 
     for (int i = 0; i < 4; i++)
     {
         if (!get_filament_online(i))
-            MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
-        MOTOR_CONTROL[i].run(speed_as5600[i]);
+            s_motor_control[i].set_motion(filament_motion_stop, 100);
+        s_motor_control[i].run(speed_as5600[i]);
     }
 }
 
@@ -524,24 +495,24 @@ void motion_control_ticks_handler(int error)
         {
             /* 清除料丝存在状态 */
             set_filament_online(i, false);
-            if (PULL_key_stu[i] == 0)
+            if (s_pull_key_pin_state[i] == 0)
             {
                 /* 缓冲器张紧状态 */
-                RGB_set(i, 0xFF, 0x00, 0x00);
+                set_filament_state_led(i, 0xFF, 0x00, 0x00);
                 if (ONLINE_key_stu[i] == 0)
                 {
-                    RGB_set(i, 0xFF, 0x00, 0xFF);
+                    set_filament_state_led(i, 0xFF, 0x00, 0xFF);
                 }
             }
             else if (ONLINE_key_stu[i] == 0)
             {
                 /* 缓冲器松弛状态 */
-                RGB_set(i, 0x00, 0x00, 0xFF);
+                set_filament_state_led(i, 0x00, 0x00, 0xFF);
             }
             else
             {
                 /* 理论上不会走到这个分支 */
-                RGB_set(i, 0x00, 0x00, 0x00);
+                set_filament_state_led(i, 0x00, 0x00, 0x00);
             }
         }
     }
@@ -550,7 +521,7 @@ void motion_control_ticks_handler(int error)
         /* BMCU在线状态，更新各通道指示灯颜色 */
         for (int i = 0; i < 4; i++)
         {
-            RGB_set(i, 0x00, 0x00, 0x37);
+            set_filament_state_led(i, 0x00, 0x00, 0x37);
         }
     }
     motor_motion_run(error);
@@ -559,67 +530,9 @@ void motion_control_ticks_handler(int error)
     {
         if ((MC_AS5600.online[i] == false) || (MC_AS5600.magnet_stu[i] == -1)) // AS5600 error
         {
-            RGB_set(i, 0xFF, 0x00, 0x00);
+            set_filament_state_led(i, 0xFF, 0x00, 0x00);
         }
     }
-}
-
-void MC_PWM_init()
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB, ENABLE);
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3 | GPIO_Pin_4 | GPIO_Pin_5 |
-                                  GPIO_Pin_6 | GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_15;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE); // 开启复用时钟
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE); // 开启TIM2时钟
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE); // 开启TIM3时钟
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM4, ENABLE); // 开启TIM4时钟
-
-    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
-    TIM_OCInitTypeDef TIM_OCInitStructure;
-
-    // 定时器基础配置
-    TIM_TimeBaseStructure.TIM_Period = 999;  // 周期（x+1）
-    TIM_TimeBaseStructure.TIM_Prescaler = 1; // 预分频（x+1）
-    TIM_TimeBaseStructure.TIM_ClockDivision = 0;
-    TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM2, &TIM_TimeBaseStructure);
-    TIM_TimeBaseInit(TIM3, &TIM_TimeBaseStructure);
-    TIM_TimeBaseInit(TIM4, &TIM_TimeBaseStructure);
-
-    // PWM模式配置
-    TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
-    TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable;
-    TIM_OCInitStructure.TIM_Pulse = 0; // 占空比
-    TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High;
-    TIM_OC1Init(TIM2, &TIM_OCInitStructure); // PA15
-    TIM_OC2Init(TIM2, &TIM_OCInitStructure); // PB3
-    TIM_OC1Init(TIM3, &TIM_OCInitStructure); // PB4
-    TIM_OC2Init(TIM3, &TIM_OCInitStructure); // PB5
-    TIM_OC1Init(TIM4, &TIM_OCInitStructure); // PB6
-    TIM_OC2Init(TIM4, &TIM_OCInitStructure); // PB7
-    TIM_OC3Init(TIM4, &TIM_OCInitStructure); // PB8
-    TIM_OC4Init(TIM4, &TIM_OCInitStructure); // PB9
-
-    GPIO_PinRemapConfig(GPIO_FullRemap_TIM2, ENABLE);    // TIM2完全映射-CH1-PA15/CH2-PB3
-    GPIO_PinRemapConfig(GPIO_PartialRemap_TIM3, ENABLE); // TIM3部分映射-CH1-PB4/CH2-PB5
-    GPIO_PinRemapConfig(GPIO_Remap_TIM4, DISABLE);       // TIM4不映射-CH1-PB6/CH2-PB7/CH3-PB8/CH4-PB9
-
-    TIM_CtrlPWMOutputs(TIM2, ENABLE);
-    TIM_ARRPreloadConfig(TIM2, ENABLE);
-    TIM_Cmd(TIM2, ENABLE);
-    TIM_CtrlPWMOutputs(TIM3, ENABLE);
-    TIM_ARRPreloadConfig(TIM3, ENABLE);
-    TIM_Cmd(TIM3, ENABLE);
-    TIM_CtrlPWMOutputs(TIM4, ENABLE);
-    TIM_ARRPreloadConfig(TIM4, ENABLE);
-    TIM_Cmd(TIM4, ENABLE);
 }
 
 void MOTOR_get_pwm_zero()
@@ -644,24 +557,24 @@ void MOTOR_get_pwm_zero()
                 {
                     pwm_zero[index] = pwm;
                     pwm_zero[index] *= 0.90;
-                    Motion_control_set_PWM(index, 0);
+                    pwm_out_bsp_set(index, 0);
                 }
                 else if ((MC_AS5600.online[index] == true))
                 {
-                    Motion_control_set_PWM(index, -pwm);
+                    pwm_out_bsp_set(index, -pwm);
                 }
             }
             else
             {
-                Motion_control_set_PWM(index, 0);
+                pwm_out_bsp_set(index, 0);
             }
         }
         delay(100);
     }
     for (int index = 0; index < 4; index++)
     {
-        Motion_control_set_PWM(index, 0);
-        MOTOR_CONTROL[index].set_pwm_zero(pwm_zero[index]);
+        pwm_out_bsp_set(index, 0);
+        s_motor_control[index].set_pwm_zero(pwm_zero[index]);
     }
 }
 
@@ -683,7 +596,7 @@ void MOTOR_get_dir()
 {
     int dir[4] = {0, 0, 0, 0};
     bool done = false;
-    bool have_data = Motion_control_read();
+    bool have_data = motion_control_state_read();
     if (!have_data)
     {
         for (int index = 0; index < 4; index++)
@@ -707,7 +620,7 @@ void MOTOR_get_dir()
         {
             if (Motion_control_data_save.Motion_control_dir[index] == 0) // 之前测试结果为0，需要测试
             {
-                Motion_control_set_PWM(index, 1000); // 打开电机
+                pwm_out_bsp_set(index, 1000); // 打开电机
                 need_test = true;                    // 设置需要测试
                 need_save = true;                    // 有状态更新
             }
@@ -730,7 +643,7 @@ void MOTOR_get_dir()
         {
             for (int index = 0; index < 4; index++)
             {
-                Motion_control_set_PWM(index, 0); // 停止
+                pwm_out_bsp_set(index, 0); // 停止
                 Motion_control_data_save.Motion_control_dir[index] = 0;//方向设为0
             }
             break;//跳出循环
@@ -742,7 +655,7 @@ void MOTOR_get_dir()
                 int angle_dis = M5600_angle_dis(MC_AS5600.raw_angle[index], last_angle[index]);
                 if (abs(angle_dis) > 163) // 移动超过1mm
                 {
-                    Motion_control_set_PWM(index, 0); // 停止
+                    pwm_out_bsp_set(index, 0); // 停止
                     if (angle_dis < 0)
                     {
                         dir[index] = 1;
@@ -766,13 +679,13 @@ void MOTOR_get_dir()
     }
     if (need_save)//如果需要保存数据
     {
-        Motion_control_save();//数据保存
+        motion_control_state_save();//数据保存
     }
 }
 void MOTOR_init()
 {
 
-    MC_PWM_init();
+    pwm_out_bsp_init();
     MC_AS5600.init(AS5600_SCL, AS5600_SDA, 4);
     MC_AS5600.updata_angle();
     for (int i = 0; i < 4; i++)
@@ -783,13 +696,13 @@ void MOTOR_init()
     MOTOR_get_dir();
     for (int index = 0; index < 4; index++)
     {
-        Motion_control_set_PWM(index, 0);
-        MOTOR_CONTROL[index].set_pwm_zero(500);
-        MOTOR_CONTROL[index].m_dir = Motion_control_data_save.Motion_control_dir[index];
+        pwm_out_bsp_set(index, 0);
+        s_motor_control[index].set_pwm_zero(500);
+        s_motor_control[index].m_dir = Motion_control_data_save.Motion_control_dir[index];
     }
 }
 
-void Motion_control_init(void)
+void motion_control_init(void)
 {
 
     MC_PULL_key_init();
