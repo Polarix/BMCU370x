@@ -3,10 +3,9 @@
 #include <bsp/rs485_bsp.h>
 #include <bsp/on_chip_flash.h>
 #include "Debug_log.h"
-#include "CRC16.h"
 #include "algorithm/crc_bambu_bus.h"
 
-CRC16 crc_16;
+static crc16_t s_crc_16;
 static crc8_t s_tx_crc8_cala;
 static crc8_t s_rx_crc8_cala;
 
@@ -285,11 +284,12 @@ void bambu_bus_init(void)
     flash_storage_init();
 
     bool _init_ready = bambu_bus_load_storage_data();
-    //crc_8.reset(0x39, 0x66, 0, false, false);
+    // crc_8.reset(0x39, 0x66, 0, false, false);
     bambu_bus_crc8_init(&s_tx_crc8_cala);
     bambu_bus_crc8_init(&s_rx_crc8_cala);
 
-    crc_16.reset(0x1021, 0x913D, 0, false, false);
+    // crc_16.reset(0x1021, 0x913D, 0, false, false);
+    bambu_bus_crc16_init(&s_crc_16);
 
     /* 初次使用时，初始化BMCU的保存数据。 */
     if (!_init_ready)
@@ -369,14 +369,14 @@ void bambu_bus_init(void)
 
 bool package_check_crc16(const uint8_t *data, int data_length)
 {
-    crc_16.restart();
+    bambu_bus_crc16_init(&s_crc_16);
     data_length -= 2;
     /* 最后两字节为CRC16的值，之前的是数据。 */
     for (auto i = 0; i < data_length; i++)
     {
-        crc_16.add(data[i]);
+        bambu_bus_crc16_step(&s_crc_16, data[i]);
     }
-    uint16_t num = crc_16.calc();
+    uint16_t num = bambu_bus_crc16_finialize(&s_crc_16);
     if ((data[(data_length)] == (num & 0xFF)) && (data[(data_length + 1)] == ((num >> 8) & 0xFF)))
         return true;
     return false;
@@ -407,13 +407,13 @@ void bambu_bus_send_response(uint8_t *data, int data_length)
         data[6] = bambu_bus_crc8_finialize(&s_tx_crc8_cala);
     }
     /* 计算整包的CRC16校验值。 */
-    crc_16.restart();
+    bambu_bus_crc16_init(&s_crc_16);
     data_length -= 2; /* 忽略包尾的2字节CRC16校验值。 */
     for (auto i = 0; i < data_length; i++)
     {
-        crc_16.add(data[i]);
+        bambu_bus_crc16_step(&s_crc_16, data[i]);
     }
-    uint16_t num = crc_16.calc();
+    uint16_t num = bambu_bus_crc16_finialize(&s_crc_16);
     data[(data_length)] = num & 0xFF;
     data[(data_length + 1)] = num >> 8;
     data_length += 2;
