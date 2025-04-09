@@ -1,81 +1,39 @@
-# BMCU370x 项目简介
-这是修改版，以下为原项目的简介搬运，项目链接：[4061N/BMCU](https://gitee.com/at_4061N/BMCU)。
+# 项目简介
 
-## 本项目相关链接
-* 1. 此项目WiKi [BMCU370x Wiki](https://bmcu.wanzii.cn/doc/build/bmcu370x.html)
-* 2. 此项目硬件 [BMCU370x oshwhub.com](https://oshwhub.com/xingcc1/bmcu-370x)
-
-## 定制固件
-克隆仓库，并使用Vscode打开`src`文件夹，使用PlatformIO插件进行编译。
-
-### 修改退料时间
-查看`src/Motion_control.cpp`文件中的第463-464行代码，修改为自定义退料时间。
-
-### 修改马达速度
-查看`src/Motion_control.cpp`文件中的第142-184行代码，修改对应状态的速度，正数为送出，负数为回退。
-# BMCU
-
-#### 介绍
-
-BMCU以四通道为一个单位，目前以CH32单片机为主控设计。其设计所需资料均参考于网络公开资料及个人测试，程序基于Platform IO平台下CH32单片机的Arduino支持库设计，调用了robtillaart的CRC库。
- **注意:本项目遵循GPL2.0开源协议，但需要额外补充的是本项目禁止商业用途。** 
-
-#### 使用说明及安装教程
-
- **1.  制造所需资料见BMCU整合打包文件** 
-
-BMCU打包文件目前发布在群内，或可以从[https://oshwhub.com/bamboo-shoot-xmcu-pcb-team/bmcu](https://oshwhub.com/bamboo-shoot-xmcu-pcb-team/bmcu)的附件部分，找到V1.1版打包文件。
-
- **2.  所需刷写的固件见release** 
-
- **3.  安装及使用教程参见wiki(由群友@丸子 牵头搭建，社区共建中)** 
-
-地址：[https://bmcu.wanzii.cn/](https://bmcu.wanzii.cn/) 
+本项目是基于BMCU的[星辰370版本](https://github.com/Xing-C/BMCU370x)修改而来，已修改和准备修改的内容如下：
+ - 统一化函数、变量的命名风格，增加代码自身的可读性。
+ - 增加注释，详细阐述代码功能。
+ - 剥离业务代码和底层驱动，方便以后向其他平台和芯片上移植。、
+ - 剥离针对Arduino和Platform的环境依赖，使用自有代码实现所有业务功能，方便在其他任何环境下编译和运行。
 
 
-#### 软件架构
-主要文件：
+# 本项目相关链接
+ - BMCU项目Wiki：https://bmcu.wanzii.cn/
+ - BMCU原始项目：https://gitee.com/at_4061N/BMCU。
+ - BMCU370x项目WiKi：https://bmcu.wanzii.cn/doc/build/bmcu370x.html
+ - BMCU370x项目源码：https://github.com/Xing-C/BMCU370x
+ - BMCU硬件设计资料：https://oshwhub.com/xingcc1/bmcu-370x
+ - AMCU原始版本设计资料：https://github.com/Bambu-Research-Group/Bambu-Bus
 
-main.cpp/h：               负责调度各个模块
+# 分支
 
-many_soft_AS5600.cpp/h：   IO模拟的，可同时和多个AS5600通讯的驱动
+目前本项目仓库中的各分支和功能如下：
 
-Motion_control.cpp/h：     负责硬件和运动状态调度
+|分支名称|功能|
+|-|-|
+|main|主分支，用于托管已经经过实验的成熟代码（但不保证没有Bug）|
+|develope|开发分支，用于编写和实验一些功能和特性上的修改|
+|BMCU370x|用于托管和同步星辰原版BMCU370x的代码实装|
 
-Flash_saves.cpp/h：        用于保存数据到flash
+# 声明
 
-time64.cpp/h：             将Arduino的32位时基转为64位，防止连续运行几个月后溢出
+ - **注意:本项目遵循GPL2.0开源协议。**
+ - **本项目禁止商业用途。**
 
-Debug_log.cpp/h：          用于DMA发送DEBUG数据到串口3
+# 致谢
 
-BambuBus.cpp/h：           用于支持拓竹打印机的通讯，使用了串口0
-
-Klipper.cpp/h：            （因klipper机型众多，停止开发）用于支持klipper的通讯
-
-ws2812.cpp/h：             IO模拟的WS2812驱动
-
-调用的库：
-
-robtillaart/CRC@^1.0.3     用于计算CRC校验
-
-#### 参与贡献
-
-设计师：
-
-4061N-程序员，优化机械部分，设计PCB
-
-括号-参与BMCU组件框架及BMCU到打印机支架的设计
-
-部分群友也参与了设计，这里暂未列出
-
-测试和数据提供者：
-
-风雪-提供打印机与AMS通讯的数据，参与部分测试
-
-二月喵-提供少量高质量的通讯数据，参与部分测试
-
-其他成员：
-
-婆老-负责在线摸鱼
-
-其他未列出的群友-提供了宝贵的测试数据和建议
+ - BMCU开发者，4061N-程序员、括号等。
+ - BMCU交流群(829433420)。
+ - 测试和数据提供者风雪、二月喵等。
+ - 我不知道的为项目提供改进和修改建议的网友……
+ 
