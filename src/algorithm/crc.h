@@ -5,10 +5,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C"{
-#endif
-
 typedef struct _st_crc8_data_
 {
     uint8_t     polynome;
@@ -29,6 +25,10 @@ typedef struct _st_crc16_data_
     bool        byte_swap;
     uint16_t    cala;
 }crc16_t;
+
+#ifdef __cplusplus
+extern "C"{
+#endif
 
 // ==================== CRC8 Basic functions ====================
 void crc8_init(crc8_t* crc8, uint8_t polynomial, uint8_t init, bool refin, bool refout, uint8_t xorout);
