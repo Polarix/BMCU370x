@@ -287,6 +287,8 @@ void bambu_bus_init(void)
     bool _init_ready = bambu_bus_load_storage_data();
     //crc_8.reset(0x39, 0x66, 0, false, false);
     bambu_bus_crc8_init(&s_tx_crc8_cala);
+    bambu_bus_crc8_init(&s_rx_crc8_cala);
+
     crc_16.reset(0x1021, 0x913D, 0, false, false);
 
     /* 初次使用时，初始化BMCU的保存数据。 */
