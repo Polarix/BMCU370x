@@ -4,10 +4,11 @@
 #include <bsp/on_chip_flash.h>
 #include "Debug_log.h"
 #include "CRC16.h"
-#include "CRC8.h"
+#include "algorithm/crc_bambu_bus.h"
 
 CRC16 crc_16;
-CRC8 crc_8;
+static crc8_t s_tx_crc8_cala;
+static crc8_t s_rx_crc8_cala;
 
 uint8_t s_usart_rev_buf[1000];
 static uint32_t s_bambu_bus_rev_length = 0;
@@ -176,9 +177,6 @@ bool bambu_bus_is_on_printing(void)
 
 uint8_t s_usart_rev_dump[1000]; /* 串口接收完成后的内容会被转储到这里 */
 
-/* CRC计算对象，用于计算接收内容的CRC值 */
-static CRC8 s_rx_crc_cala(0x39, 0x66, 0x00, false, false);
-
 /* 串口中断服务函数 */
 static void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
 {
@@ -195,8 +193,8 @@ static void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
         {
             s_usart_rev_buf[0] = 0x3D;
             /* 新的数据包传输开始，重置CRC计算。 */
-            s_rx_crc_cala.restart();
-            s_rx_crc_cala.add(0x3D);
+            bambu_bus_crc8_init(&s_rx_crc8_cala);
+            bambu_bus_crc8_step(&s_rx_crc8_cala, 0x3D);
             data_length_index = 4;
             length = data_CRC8_index = 6;
             _index = 1;
@@ -228,12 +226,12 @@ static void inline banbu_bus_byte_receive_handler(uint8_t rev_byte)
         if (_index < data_CRC8_index)
         {
             /* 将CRC8校验值之前的所有数据都参与CRC8计算 */
-            s_rx_crc_cala.add(data);
+            bambu_bus_crc8_step(&s_rx_crc8_cala, data);
         }
         else if (_index == data_CRC8_index)
         {
             /* 计算CRC8并比较，如果错误则忽略此次传输，重置索引等待重新开始。 */
-            if (data != s_rx_crc_cala.calc())
+            if (data != bambu_bus_crc8_finialize(&s_rx_crc8_cala))
             {
                 _index = 0;
                 return;
@@ -287,8 +285,8 @@ void bambu_bus_init(void)
     flash_storage_init();
 
     bool _init_ready = bambu_bus_load_storage_data();
-
-    crc_8.reset(0x39, 0x66, 0, false, false);
+    //crc_8.reset(0x39, 0x66, 0, false, false);
+    bambu_bus_crc8_init(&s_tx_crc8_cala);
     crc_16.reset(0x1021, 0x913D, 0, false, false);
 
     /* 初次使用时，初始化BMCU的保存数据。 */
@@ -386,24 +384,25 @@ bool need_debug = false;
 void bambu_bus_send_response(uint8_t *data, int data_length)
 {
     /* 计算包头的CRC8校验值。 */
-    crc_8.restart();
+    bambu_bus_crc8_init(&s_tx_crc8_cala);
     if (data[1] & 0x80)
     {
         /* 短包应答的头部CRC8计算 */
+
         for (auto i = 0; i < 3; i++)
         {
-            crc_8.add(data[i]);
+            bambu_bus_crc8_step(&s_tx_crc8_cala, data[i]);
         }
-        data[3] = crc_8.calc();
+        data[3] = bambu_bus_crc8_finialize(&s_tx_crc8_cala);
     }
     else
     {
         /* 长包应答的头部CRC8计算 */
         for (auto i = 0; i < 6; i++)
         {
-            crc_8.add(data[i]);
+            bambu_bus_crc8_step(&s_tx_crc8_cala, data[i]);
         }
-        data[6] = crc_8.calc();
+        data[6] = bambu_bus_crc8_finialize(&s_tx_crc8_cala);
     }
     /* 计算整包的CRC16校验值。 */
     crc_16.restart();
