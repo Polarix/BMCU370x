@@ -25,23 +25,23 @@
     }
 
 // address
-#define AS5600_write_address (0x36 << 1)
-#define AS5600_read_address ((0x36 << 1) + 1)
-// angle
-#define AS5600_raw_angle 0x0C
-#define AS5600_angle 0x0E
+#define AS5600_IIC_ADDR (0x36 << 1)
+#define AS5600_IIC_ADDR_R ((0x36 << 1) + 1)
+/* 角度寄存器地址 */
+#define AS5600_REG_ADDR_RAW_ANGLE 0x0C
+// #define AS5600_angle 0x0E
 
-// statu reg
-#define AS5600_status 0x0B
-#define AS5600_agc 0x1A
-#define AS5600_magnitude 0x1B
-#define AS5600_burn 0xFF
+/* 状态寄存器地址 */
+#define AS5600_REG_ADDR_STATUS 0x0B
+// #define AS5600_agc 0x1A
+// #define AS5600_magnitude 0x1B
+// #define AS5600_burn 0xFF
 
-AS5600_soft_IIC_many::AS5600_soft_IIC_many()
+CAS5600::CAS5600()
 {
     numbers = 0;
 }
-AS5600_soft_IIC_many::~AS5600_soft_IIC_many()
+CAS5600::~CAS5600()
 {
     if (numbers > 0)
     {
@@ -59,7 +59,7 @@ AS5600_soft_IIC_many::~AS5600_soft_IIC_many()
     }
 }
 
-void AS5600_soft_IIC_many::init(uint32_t *GPIO_SCL, uint32_t *GPIO_SDA, int num)
+void CAS5600::init(const uint32_t* GPIO_SCL, const uint32_t* GPIO_SDA, int num)
 {
     numbers = num;
     online = (new bool[numbers]);
@@ -89,7 +89,7 @@ void AS5600_soft_IIC_many::init(uint32_t *GPIO_SCL, uint32_t *GPIO_SDA, int num)
     init_iic();
     updata_stu();
 }
-void AS5600_soft_IIC_many::clear_datas()
+void CAS5600::clear_datas()
 {
     for (int i = 0; i < numbers; i++)
     {
@@ -97,9 +97,10 @@ void AS5600_soft_IIC_many::clear_datas()
         data[i] = 0;
     }
 }
-void AS5600_soft_IIC_many::updata_stu()
+void CAS5600::updata_stu()
 {
-    read_reg8(AS5600_status);
+    /* 读取数据到data成员里。 */
+    read_reg8(AS5600_REG_ADDR_STATUS);
     for (int i = 0; i < numbers; i++)
     {
         if (error[i])
@@ -121,9 +122,10 @@ void AS5600_soft_IIC_many::updata_stu()
         }
     }
 }
-void AS5600_soft_IIC_many::updata_angle()
+void CAS5600::updata_angle()
 {
-    read_reg16(AS5600_raw_angle);
+    /* 读取数据到data成员里。 */
+    read_reg16(AS5600_REG_ADDR_RAW_ANGLE);
     for (auto i = 0; i < numbers; i++)
     {
         if (error[i] == 0)
@@ -139,7 +141,7 @@ void AS5600_soft_IIC_many::updata_angle()
     }
     
 }
-void AS5600_soft_IIC_many::init_iic()
+void CAS5600::init_iic()
 {
     for (auto i = 0; i < numbers; i++)
     {
@@ -150,7 +152,7 @@ void AS5600_soft_IIC_many::init_iic()
         error[i] = 0;
     }
 }
-void AS5600_soft_IIC_many::start_iic(unsigned char ADR)
+void CAS5600::start_iic(unsigned char ADR)
 {
     iic_delay();
     SET_H(port_SDA, pin_SDA);
@@ -162,7 +164,7 @@ void AS5600_soft_IIC_many::start_iic(unsigned char ADR)
     write_iic(ADR);
 }
 
-void AS5600_soft_IIC_many::stop_iic()
+void CAS5600::stop_iic()
 {
     SET_L(port_SCL, pin_SCL);
     SET_L(port_SDA, pin_SDA);
@@ -173,7 +175,7 @@ void AS5600_soft_IIC_many::stop_iic()
     iic_delay();
 }
 
-void AS5600_soft_IIC_many::write_iic(uint8_t byte)
+void CAS5600::write_iic(uint8_t byte)
 {
     for (uint8_t i = 0x80; i; i >>= 1)
     {
@@ -193,7 +195,7 @@ void AS5600_soft_IIC_many::write_iic(uint8_t byte)
     wait_ack_iic();
 }
 
-void AS5600_soft_IIC_many::read_iic(bool ack)
+void CAS5600::read_iic(bool ack)
 {
     SET_H(port_SDA, pin_SDA);
 
@@ -229,7 +231,7 @@ void AS5600_soft_IIC_many::read_iic(bool ack)
     iic_delay();
 }
 
-void AS5600_soft_IIC_many::wait_ack_iic()
+void CAS5600::wait_ack_iic()
 {
     SET_H(port_SDA, pin_SDA);
     iic_delay();
@@ -244,25 +246,25 @@ void AS5600_soft_IIC_many::wait_ack_iic()
     return;
 }
 
-void AS5600_soft_IIC_many::read_reg8(uint8_t reg)
+void CAS5600::read_reg8(uint8_t reg)
 {
     if (!numbers)
         return;
     clear_datas();
-    start_iic(AS5600_write_address);
+    start_iic(AS5600_IIC_ADDR);
     write_iic(reg);
-    start_iic(AS5600_read_address);
+    start_iic(AS5600_IIC_ADDR_R);
     read_iic(false);
 }
 
-void AS5600_soft_IIC_many::read_reg16(uint8_t reg)
+void CAS5600::read_reg16(uint8_t reg)
 {
     if (!numbers)
         return;
     clear_datas();
-    start_iic(AS5600_write_address);
+    start_iic(AS5600_IIC_ADDR);
     write_iic(reg);
-    start_iic(AS5600_read_address);
+    start_iic(AS5600_IIC_ADDR_R);
     read_iic(true);
     read_iic(false);
 }

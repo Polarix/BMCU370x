@@ -6,12 +6,16 @@
 #include <Arduino.h>
 #include <time64.h>
 
-AS5600_soft_IIC_many MC_AS5600;
-uint32_t AS5600_SCL[] = {PA6, PA4, PA2, PA0};
-uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
+static void motion_control_init_motor(void);
+
+static CAS5600 s_motion_control_as5600;
+static const uint32_t AS5600_SCL[] = {PA6, PA4, PA2, PA0};
+static const uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
 
 uint8_t s_pull_key_pin_state[4] = {0, 0, 0, 0};
 #define PWM_lim 900
+
+static int s_filament_now_position[4];
 
 struct alignas(4) Motion_control_save_struct
 {
@@ -140,18 +144,21 @@ public:
             pwm_out_bsp_set(m_channel_idx, 0);
             return;
         }
-        if (m_motion == filament_motion_stop) // just stop
+        if (m_motion == filament_motion_stop) /* 运动状态为停机，关闭电机。 */
         {
             m_PID.clear();
             pwm_out_bsp_set(m_channel_idx, 0);
             return;
         }
-        if (m_motion == filament_motion_send) // send
+        if (m_motion == filament_motion_send) /* 送料 */
         {
             if (device_type == BambuBus_AMS)
             {
                 speed_set = 55; // AMS加速
-            } else { // amslite 正常速度
+            }
+            else
+            {
+                // amslite 正常速度
                 speed_set = 50;
             }
         }
@@ -159,16 +166,16 @@ public:
         {
             speed_set = 20;
         }
-        if (m_motion == filament_motion_slow_send) // slowly send
+        if (m_motion == filament_motion_slow_send) /* 缓慢送料 */
         {
             speed_set = 3;
         }
-        if (m_motion == filament_motion_pull) // pull 退料调速
+        if (m_motion == filament_motion_pull) /* 电机反转，退料 */
         {
             speed_set = -50; // AMS
         }
 
-        if (m_motion == filament_motion_less_pressure) // less pressure
+        if (m_motion == filament_motion_less_pressure) /* 打印中状态，辅助送料 */
         {
             // 缓冲时压力不会太小 默认：10
             if (device_type == BambuBus_AMS) // 如果是 BambuBus_AMS 辅助送料速度
@@ -184,11 +191,13 @@ public:
                 speed_set = 10;
             }
         }
-        if (m_motion == filament_motion_over_pressure) // over pressure
+        if (m_motion == filament_motion_over_pressure) /* 过送料，压力过大，目前未使用 */
         {
             speed_set = -10;
         }
-        x1 = speed_set;
+
+        x1 = speed_set; /* 设定的速度 */
+
         float x = m_dir * m_PID.caculate(now_speed - speed_set, (float)(time_now - time_last) / 1000);
 
         if (x > 1)
@@ -197,7 +206,7 @@ public:
             x -= pwm_zero;
         else
             x = 0;
-
+        /* PWM值限幅 */    
         if (x > PWM_lim)
         {
             x = PWM_lim;
@@ -272,32 +281,37 @@ void MC_ONLINE_key_init()
 
 #define AS5600_PI 3.1415926535897932384626433832795
 #define speed_filter_k 100
-float speed_as5600[4] = {0, 0, 0, 0};
-int32_t as5600_distance_save[4] = {0, 0, 0, 0};
-void AS5600_distance_updata()
+float s_speed_as5600[4] = {0, 0, 0, 0};
+static int32_t s_as5600_distance_save[4] = {0, 0, 0, 0};
+
+static void motion_control_filament_distance_updata(void)
 {
     static uint64_t time_last = 0;
     uint64_t time_now;
-    float T;
+    float time_elapsed_ms;
+    /* 等待时间差分 */
     do
     {
         time_now = get_time64();
     } while (time_now <= time_last); // T!=0
-    T = (float)(time_now - time_last);
-    MC_AS5600.updata_angle();
+    time_elapsed_ms = (float)(time_now - time_last);
+    /* 读取传感器角度信息 */
+    s_motion_control_as5600.updata_angle();
     for (int i = 0; i < 4; i++)
     {
-        if ((MC_AS5600.online[i] == false))
+        /* 从及终端离线则清空所有记录数据 */
+        if ((s_motion_control_as5600.online[i] == false))
         {
-            as5600_distance_save[i] = 0;
-            speed_as5600[i] = 0;
+            s_as5600_distance_save[i] = 0;
+            s_speed_as5600[i] = 0;
             continue;
         }
 
         int32_t cir_E = 0;
-        int32_t last_distance = as5600_distance_save[i];
-        int32_t now_distance = MC_AS5600.raw_angle[i];
-        float distance_E;
+        int32_t last_distance = s_as5600_distance_save[i];
+        int32_t now_distance = s_motion_control_as5600.raw_angle[i];
+        float distance_increments;
+        /* 判断已经转满一圈（环绕）的情况。 */
         if ((now_distance > 3072) && (last_distance <= 1024))
         {
             cir_E = -4096;
@@ -308,17 +322,17 @@ void AS5600_distance_updata()
         }
 
         /* BMG挤出轮的送料区直径是7.5mm */
-        /* now_distance - last_distance + cir_E，确保当前计算的料丝长度有效，不会溢出 */
-        distance_E = (float)(now_distance - last_distance + cir_E) * AS5600_PI * 7.5 / 4096;
-        as5600_distance_save[i] = now_distance;
+        /* now_distance - last_distance + cir_E，确保当前计算的角度有效，不会溢出 */
+        distance_increments = (float)(now_distance - last_distance + cir_E) * AS5600_PI * 7.5 / 4096;
+        s_as5600_distance_save[i] = now_distance;
 
-        float speedx = distance_E / T * 1000;
-        // T = speed_filter_k / (T + speed_filter_k);
-        speed_as5600[i] = speedx; // * (1 - T) + speed_as5600[i] * T; // mm/s
-
+        /* 计算送料的速度，单位mm/s */
+        float speedx = distance_increments / time_elapsed_ms * 1000; /* 1000mm/1m  */
+        s_speed_as5600[i] = speedx;
         /* 记录料丝增量，单位是米(m)，所以/1000。 */
-        add_filament_meters(i, distance_E / 1000);
+        add_filament_meters(i, distance_increments / 1000);
     }
+    /* 更新时间计数 */
     time_last = time_now;
 }
 
@@ -330,8 +344,6 @@ enum filament_now_position_enum
     filament_pulling_back,
     filament_redetect,
 };
-int filament_now_position[4];
-bool wait = false;
 
 static uint64_t motor_reverse_start_time[4] = {0}; // 记录电机反转开始时间
 bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
@@ -339,7 +351,7 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
     bool wait = false;
     for (int i = 0; i < 4; i++)
     {
-        if (filament_now_position[i] == filament_pulling_back)
+        if (s_filament_now_position[i] == filament_pulling_back)
         {
             set_filament_state_led(i, 0xFF, 0x00, 0xFF); // 设置RGB灯为紫色
             s_motor_control[i].set_motion(filament_motion_pull, 100); // 驱动电机退料
@@ -355,7 +367,7 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
                 /* 到达停止时间 */
                 s_motor_control[i].set_motion(filament_motion_stop, 100); // 停止电机
                 s_motor_control[i].set_motion(filament_motion_no_resistance, 100); // 设置无阻力模式
-                filament_now_position[i] = filament_idle; // 设置当前位置为空闲
+                s_filament_now_position[i] = filament_idle; // 设置当前位置为空闲
                 bambu_bus_set_filament_motion(i, idle); // 设置当前耗材状态为空闲
                 motor_reverse_start_time[i] = 0; // 重置反转开始时间
             }
@@ -379,7 +391,7 @@ void motor_motion_switch(void)
         case need_send_out: /* 当前没有活动通道，需要BMCU送料到挤出机。 */
             /* 绿灯 */
             set_filament_state_led(num, 0x00, 0xFF, 0x00);
-            filament_now_position[num] = filament_sending_out;
+            s_filament_now_position[num] = filament_sending_out;
             if (device_type == BambuBus_AMS_lite)
             {
                 if (s_pull_key_pin_state[num] == 0)
@@ -395,20 +407,20 @@ void motor_motion_switch(void)
         case need_pull_back: /* 回抽 */
             /* 紫灯 */
             set_filament_state_led(num, 0xFF, 0x00, 0xFF);
-            filament_now_position[num] = filament_pulling_back;
+            s_filament_now_position[num] = filament_pulling_back;
             // MOTOR_CONTROL[num].set_motion(filament_motion_pull, 100);
             break;
         case on_use:    /* 使用中/打印中，持续送料。 */
         {
             static uint64_t time_end = 0;
             uint64_t time_now = get_time64();
-            if (filament_now_position[num] == filament_sending_out)
+            if (s_filament_now_position[num] == filament_sending_out)
             {
-                filament_now_position[num] = filament_using;
+                s_filament_now_position[num] = filament_using;
 
                 time_end = time_now + 3000;
             }
-            else if (filament_now_position[num] == filament_using) // 已经进入使用状态,即打印机已经检测到耗材丝。
+            else if (s_filament_now_position[num] == filament_using) // 已经进入使用状态,即打印机已经检测到耗材丝。
             {
                 if (s_pull_key_pin_state[num] == 0) // 如果触发缓冲，则缓冲状态。
                     s_motor_control[num].set_motion(filament_motion_less_pressure, 20); // 缓冲状态。
@@ -422,7 +434,7 @@ void motor_motion_switch(void)
             break;
         }
         case idle:  /* 空闲状态，未使用 */
-            filament_now_position[num] = filament_idle;
+            s_filament_now_position[num] = filament_idle;
             s_motor_control[num].set_motion(filament_motion_no_resistance, 100);
             /* 空闲，蓝色，低亮度 */
             set_filament_state_led(num, 0x00, 0x00, 0x37);
@@ -433,7 +445,8 @@ void motor_motion_switch(void)
 
 // 根据AMS模拟器的信息，来调度电机
 void motor_motion_run(int error)
-{   // 退料时间
+{
+    /* 退料时间常量 */
     uint64_t A1X_OUT_TIME = 2300;
     uint64_t P1X_OUT_TIME = 3100;
     uint64_t OUT_TIME = 8000;
@@ -464,8 +477,11 @@ void motor_motion_run(int error)
     for (int i = 0; i < 4; i++)
     {
         if (!get_filament_online(i))
+        {
             s_motor_control[i].set_motion(filament_motion_stop, 100);
-        s_motor_control[i].run(speed_as5600[i]);
+        }
+        /* 电机控制主循环 */
+        s_motor_control[i].run(s_speed_as5600[i]);
     }
 }
 
@@ -475,15 +491,15 @@ void motion_control_ticks_handler(int error)
     MC_PULL_key_read();
     /* 更新料丝状态 */
     MC_ONLINE_key_read();
-    /* 更新送料齿轮状态 */
-    AS5600_distance_updata();
+    /* 更新送料长度状态，通过读取AS5600磁编码器的角度差计算。 */
+    motion_control_filament_distance_updata();
     for (int i = 0; i < 4; i++)
     {
         if ((ONLINE_key_stu[i] == 0))
         {
             set_filament_online(i, true);
         }
-        else if ((filament_now_position[i] != filament_redetect) && (filament_now_position[i] != filament_pulling_back))
+        else if ((s_filament_now_position[i] != filament_redetect) && (s_filament_now_position[i] != filament_pulling_back))
         {
             set_filament_online(i, false);
         }
@@ -524,42 +540,47 @@ void motion_control_ticks_handler(int error)
             set_filament_state_led(i, 0x00, 0x00, 0x37);
         }
     }
+    /* 执行电机控制单元 */
     motor_motion_run(error);
 
+    /* 更新从机LED灯颜色 */
     for (int i = 0; i < 4; i++)
     {
-        if ((MC_AS5600.online[i] == false) || (MC_AS5600.magnet_stu[i] == -1)) // AS5600 error
+        if ((s_motion_control_as5600.online[i] == false) || (s_motion_control_as5600.magnet_stu[i] == -1)) // AS5600 error
         {
             set_filament_state_led(i, 0xFF, 0x00, 0x00);
         }
     }
 }
 
-void MOTOR_get_pwm_zero()
+#if 0
+/* 获取零点(电机停转)的PWM值，目前已弃用。 */
+void MOTOR_get_pwm_zero(void)
 {
     float pwm_zero[4] = {0, 0, 0, 0};
-    MC_AS5600.updata_angle();
+    s_motion_control_as5600.updata_angle();
 
     int16_t last_angle[4];
     for (int index = 0; index < 4; index++)
     {
-        last_angle[index] = MC_AS5600.raw_angle[index];
+        last_angle[index] = s_motion_control_as5600.raw_angle[index];
     }
     for (int pwm = 300; pwm < 1000; pwm += 10)
     {
-        MC_AS5600.updata_angle();
+        /* 循环读取角度值，直至角度不再更新，电机停转。 */
+        s_motion_control_as5600.updata_angle();
         for (int index = 0; index < 4; index++)
         {
 
             if (pwm_zero[index] == 0)
             {
-                if (abs(MC_AS5600.raw_angle[index] - last_angle[index]) > 50)
+                if (abs(s_motion_control_as5600.raw_angle[index] - last_angle[index]) > 50)
                 {
                     pwm_zero[index] = pwm;
                     pwm_zero[index] *= 0.90;
                     pwm_out_bsp_set(index, 0);
                 }
-                else if ((MC_AS5600.online[index] == true))
+                else if ((s_motion_control_as5600.online[index] == true))
                 {
                     pwm_out_bsp_set(index, -pwm);
                 }
@@ -577,6 +598,7 @@ void MOTOR_get_pwm_zero()
         s_motor_control[index].set_pwm_zero(pwm_zero[index]);
     }
 }
+#endif 
 
 int M5600_angle_dis(int16_t angle1, int16_t angle2)
 {
@@ -592,7 +614,9 @@ int M5600_angle_dis(int16_t angle1, int16_t angle2)
     }
     return cir_E;
 }
-void MOTOR_get_dir()
+
+/* 自检，确定电机是的正转方向，因为使用的齿轮箱不同，所以挤出轮的正转方向可能与电机不同。 */
+static void motion_control_get_motor_dir(void)
 {
     int dir[4] = {0, 0, 0, 0};
     bool done = false;
@@ -604,25 +628,24 @@ void MOTOR_get_dir()
             Motion_control_data_save.Motion_control_dir[index] = 0;
         }
     }
-    MC_AS5600.updata_angle(); // read as5600 once
-
+    /* 读取一次角度传感器的值并临时保存。 */
+    s_motion_control_as5600.updata_angle(); // read as5600 once
     int16_t last_angle[4];
     for (int index = 0; index < 4; index++)
     {
-        last_angle[index] = MC_AS5600.raw_angle[index];                  // init angle
+        last_angle[index] = s_motion_control_as5600.raw_angle[index];                  // init angle
         dir[index] = Motion_control_data_save.Motion_control_dir[index]; // init dir data
     }
-    bool need_test = false; // 是否需要检测
+
     bool need_save = false; // 是否需要更新状态
     for (int index = 0; index < 4; index++)
     {
-        if ((MC_AS5600.online[index] == true)) // 有5600，说明通道在线
+        if ((s_motion_control_as5600.online[index] == true)) // 有5600，说明通道在线
         {
             if (Motion_control_data_save.Motion_control_dir[index] == 0) // 之前测试结果为0，需要测试
             {
                 pwm_out_bsp_set(index, 1000); // 打开电机
-                need_test = true;                    // 设置需要测试
-                need_save = true;                    // 有状态更新
+                need_save = true;   // 有状态更新
             }
         }
         else
@@ -631,14 +654,14 @@ void MOTOR_get_dir()
             need_save = true; // 有状态更新
         }
     }
-    int i = 0;
+
+    int i = 0; /* 记录检测循环执行的次数。 */
     while (done == false)
     {
         done = true;
-        
         delay(10);//间隔10ms检测一次
-        MC_AS5600.updata_angle();//更新角度数据
-
+        /* 再次读取角度数据 */
+        s_motion_control_as5600.updata_angle();
         if (i++ > 200)//超过2s无响应
         {
             for (int index = 0; index < 4; index++)
@@ -650,9 +673,9 @@ void MOTOR_get_dir()
         }
         for (int index = 0; index < 4; index++)//遍历
         {
-            if ((MC_AS5600.online[index] == true) && (Motion_control_data_save.Motion_control_dir[index] == 0)) // 对于新的通道
+            if ((s_motion_control_as5600.online[index] == true) && (Motion_control_data_save.Motion_control_dir[index] == 0)) // 对于新的通道
             {
-                int angle_dis = M5600_angle_dis(MC_AS5600.raw_angle[index], last_angle[index]);
+                int angle_dis = M5600_angle_dis(s_motion_control_as5600.raw_angle[index], last_angle[index]);
                 if (abs(angle_dis) > 163) // 移动超过1mm
                 {
                     pwm_out_bsp_set(index, 0); // 停止
@@ -682,35 +705,42 @@ void MOTOR_get_dir()
         motion_control_state_save();//数据保存
     }
 }
-void MOTOR_init()
-{
 
+static void motion_control_init_motor(void)
+{
+    /* 初始化PWM控制器 */
     pwm_out_bsp_init();
-    MC_AS5600.init(AS5600_SCL, AS5600_SDA, 4);
-    MC_AS5600.updata_angle();
+    /* 初始化磁编码传感器 */
+    s_motion_control_as5600.init(AS5600_SCL, AS5600_SDA, 4);
+    /* 初始化后手册读取角度值，设定基准变量 */
+    s_motion_control_as5600.updata_angle();
+    /* 分别记录四个通道的起始角度值 */
     for (int i = 0; i < 4; i++)
     {
-        as5600_distance_save[i] = MC_AS5600.raw_angle[i];
+        s_as5600_distance_save[i] = s_motion_control_as5600.raw_angle[i];
     }
-    // MOTOR_get_pwm_zero();
-    MOTOR_get_dir();
+    /* 获取电机停转时的PWM值，驱动方式变更，目前已废弃。 */
+    // MOTOR_get_pwm_zero(); 
+    /* 自检，确定挤出轮的正转方向 */
+    motion_control_get_motor_dir();
+
     for (int index = 0; index < 4; index++)
     {
+        /* 电机停机 */
         pwm_out_bsp_set(index, 0);
-        s_motor_control[index].set_pwm_zero(500);
+        s_motor_control[index].set_pwm_zero(500); /* PWM零点，目前应该是不用了。 */
+        /* 重新加载电机正转的方向 */
         s_motor_control[index].m_dir = Motion_control_data_save.Motion_control_dir[index];
     }
 }
 
 void motion_control_init(void)
 {
-
     MC_PULL_key_init();
     MC_ONLINE_key_init();
-
-    MOTOR_init();
+    motion_control_init_motor();
     for (int i = 0; i < 4; i++)
     {
-        filament_now_position[i] = filament_idle;
+        s_filament_now_position[i] = filament_idle;
     }
 }
