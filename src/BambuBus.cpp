@@ -3,17 +3,17 @@
 #include "CRC16.h"
 #include "CRC8.h"
 
-#define FILAMENT_CONFIG_SAVE_ADDR ((uint32_t)0x0800F000)
+#define FILAMENT_CONFIG_SAVE_ADDR   ((uint32_t)0x0800F000)
+#define BAMBU_BUS_REV_BUF_LEN       (1000)
 
-uint8_t buf_X[1000];
-CRC8 s_crc8_rx_check;
-CRC16 s_crc16_check;
-CRC8 s_crc8_tx_check;
+static uint32_t s_bambu_bus_receive_package_len = 0;
+static uint8_t s_receive_dump[BAMBU_BUS_REV_BUF_LEN];
+static uint8_t s_bambu_bus_rev_buf[BAMBU_BUS_REV_BUF_LEN];
+static CRC8 s_crc8_rx_check;
+static CRC16 s_crc16_check;
+static CRC8 s_crc8_tx_check;
 
-uint8_t BambuBus_data_buf[1000];
-int BambuBus_have_data = 0;
 bambu_bus_device_type_t s_bambu_bus_device_type = BambuBus_none;
-uint8_t AMS_num = 1;
 
 typedef struct _filament_info_
 {
@@ -160,7 +160,7 @@ static void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
     {
         if (rev_byte == 0x3D)
         {
-            BambuBus_data_buf[0] = 0x3D;
+            s_bambu_bus_rev_buf[0] = 0x3D;
             s_crc8_rx_check.restart();
             s_crc8_rx_check.add(0x3D);
             data_length_index = 4;
@@ -171,7 +171,7 @@ static void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
     }
     else
     {
-        BambuBus_data_buf[_index] = rev_byte;
+        s_bambu_bus_rev_buf[_index] = rev_byte;
         if (_index == 1)
         {
             if (rev_byte & 0x80)
@@ -205,8 +205,8 @@ static void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
         if (_index >= length)
         {
             _index = 0;
-            memcpy(buf_X, BambuBus_data_buf, length);
-            BambuBus_have_data = length;
+            memcpy(s_receive_dump, s_bambu_bus_rev_buf, length);
+            s_bambu_bus_receive_package_len = length;
         }
         if (_index >= 999)
         {
@@ -1054,47 +1054,47 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
         i->motion_set = idle;
     }*/
 
-    if (BambuBus_have_data)
+    if (s_bambu_bus_receive_package_len)
     {
-        int data_length = BambuBus_have_data;
-        BambuBus_have_data = 0;
+        int data_length = s_bambu_bus_receive_package_len;
+        s_bambu_bus_receive_package_len = 0;
         need_debug = false;
         delay(1);
-        stu = get_packge_type(buf_X, data_length); // have_data
+        stu = get_packge_type(s_receive_dump, data_length); // have_data
         switch (stu)
         {
         case BambuBus_package_heartbeat:
             time_set = timex + 1000;
             break;
         case BambuBus_package_filament_motion_short:
-            send_for_motion_short(buf_X, data_length);
+            send_for_motion_short(s_receive_dump, data_length);
             break;
         case BambuBus_package_filament_motion_long:
-            DEBUG_num(buf_X, data_length);
-            send_for_motion_long(buf_X, data_length);
+            DEBUG_num(s_receive_dump, data_length);
+            send_for_motion_long(s_receive_dump, data_length);
             time_motion = timex + 1000;
             break;
         case BambuBus_package_online_detect:
 
-            send_for_online_detect(buf_X, data_length);
+            send_for_online_detect(s_receive_dump, data_length);
             break;
         case BambuBus_package_REQx6:
             // send_for_REQx6(buf_X, data_length);
             break;
         case BambuBus_long_package_MC_online:
-            send_for_long_packge_MC_online(buf_X, data_length);
+            send_for_long_packge_MC_online(s_receive_dump, data_length);
             break;
         case BambuBus_longe_package_filament:
-            send_for_long_packge_filament(buf_X, data_length);
+            send_for_long_packge_filament(s_receive_dump, data_length);
             break;
         case BambuBus_long_package_version:
-            send_for_long_packge_version(buf_X, data_length);
+            send_for_long_packge_version(s_receive_dump, data_length);
             break;
         case BambuBus_package_NFC_detect:
             // send_for_NFC_detect(buf_X, data_length);
             break;
         case BambuBus_package_set_filament:
-            send_for_set_filament(buf_X, data_length);
+            send_for_set_filament(s_receive_dump, data_length);
             break;
         default:
             break;
