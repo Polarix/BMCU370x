@@ -75,13 +75,13 @@ void bambu_bus_init_usart(void)
 
     USART_Cmd(USART1, ENABLE);
 }
-#if 0
-__attribute__((interrupt("WCH-Interrupt-fast")));
+
+__attribute__((interrupt("WCH-Interrupt-fast")))
 void USART1_IRQHandler(void)
 {
     if (USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)
     {
-        bambu_bus_byte_receive_handler(USART_ReceiveData(USART1));
+        s_rs485_rev_byte_handler(USART_ReceiveData(USART1));
     }
     if (USART_GetITStatus(USART1, USART_IT_TC) != RESET)
     {
@@ -89,7 +89,7 @@ void USART1_IRQHandler(void)
         GPIOA->BCR = GPIO_Pin_12;
     }
 }
-#endif
+
 void rs_485_bsp_register_byte_rev_callback(rs485_byte_rev_handle callback)
 {
     s_rs485_rev_byte_handler = callback;
