@@ -395,7 +395,7 @@ void motor_motion_switch()
         return;
     if (bambu_bus_filament_is_online(num))
     {
-        switch (get_filament_motion(num))
+        switch (bambu_bus_get_filament_motion_set(num))
         {
         case need_send_out:
             RGB_set(num, 0x00, 0xFF, 0x00);

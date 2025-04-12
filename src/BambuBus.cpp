@@ -4,6 +4,9 @@
 
 #define FILAMENT_CONFIG_SAVE_ADDR ((uint32_t)0x0800F000)
 
+static void bambu_bus_init_usart(void);
+static void bambu_bus_send_data(const uint8_t *data, uint16_t length);
+
 uint8_t buf_X[1000];
 CRC8 s_crc8_rx_check;
 CRC16 s_crc16_check;
@@ -136,25 +139,28 @@ void set_filament_motion(int num, filament_motion_set_t motion)
     }
 }
 
-filament_motion_set_t get_filament_motion(int num)
+/* 获取耗材通道运动状态设定，MC模块通过此函数读取总线请求。 */
+filament_motion_set_t bambu_bus_get_filament_motion_set(int num)
 {
+    filament_motion_set_t motion_set = idle;
     if (num < 16)
-        return data_save.filament[num / 4][num % 4].motion_set;
-    else
-        return idle;
+    {
+        motion_set = data_save.filament[num / 4][num % 4].motion_set;
+    }
+    return motion_set;
 }
 
-void inline bambu_bus_byte_receive_handler(uint8_t _RX_IRQ_data)
+/* RS485总线接收处理。 */
+void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
 {
     static int _index = 0;
     static int length = 500;
     static uint8_t data_length_index;
     static uint8_t data_CRC8_index;
-    uint8_t data = _RX_IRQ_data;
 
     if (_index == 0)
     {
-        if (data == 0x3D)
+        if (rev_byte == 0x3D)
         {
             BambuBus_data_buf[0] = 0x3D;
             s_crc8_rx_check.restart();
@@ -167,10 +173,10 @@ void inline bambu_bus_byte_receive_handler(uint8_t _RX_IRQ_data)
     }
     else
     {
-        BambuBus_data_buf[_index] = data;
+        BambuBus_data_buf[_index] = rev_byte;
         if (_index == 1)
         {
-            if (data & 0x80)
+            if (rev_byte & 0x80)
             {
                 data_length_index = 2;
                 data_CRC8_index = 3;
@@ -183,15 +189,15 @@ void inline bambu_bus_byte_receive_handler(uint8_t _RX_IRQ_data)
         }
         if (_index == data_length_index)
         {
-            length = data;
+            length = rev_byte;
         }
         if (_index < data_CRC8_index)
         {
-            s_crc8_rx_check.add(data);
+            s_crc8_rx_check.add(rev_byte);
         }
         else if (_index == data_CRC8_index)
         {
-            if (data != s_crc8_rx_check.calc())
+            if (rev_byte != s_crc8_rx_check.calc())
             {
                 _index = 0;
                 return;
@@ -214,7 +220,8 @@ void inline bambu_bus_byte_receive_handler(uint8_t _RX_IRQ_data)
 #include <stdio.h>
 
 DMA_InitTypeDef Bambubus_DMA_InitStructure;
-void send_uart(const uint8_t *data, uint16_t length)
+
+static void bambu_bus_send_data(const uint8_t *data, uint16_t length)
 {
     DMA_DeInit(DMA1_Channel4);
     // Configure DMA1 channel 4 for USART1 TX
@@ -227,7 +234,7 @@ void send_uart(const uint8_t *data, uint16_t length)
     USART_DMACmd(USART1, USART_DMAReq_Tx, ENABLE);
 }
 
-void BambuBUS_UART_Init()
+static void bambu_bus_init_usart(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure = {0};
     USART_InitTypeDef USART_InitStructure = {0};
@@ -373,7 +380,7 @@ void bambu_bus_init(void)
         }
     }
 
-    BambuBUS_UART_Init();
+    bambu_bus_init_usart();
 }
 
 bool package_check_crc16(uint8_t *data, int data_length)
@@ -420,7 +427,7 @@ void package_send_with_crc(uint8_t *data, int data_length)
     data[(data_length)] = num & 0xFF;
     data[(data_length + 1)] = num >> 8;
     data_length += 2;
-    send_uart(data, data_length);
+    bambu_bus_send_data(data, data_length);
     if (need_debug)
     {
         DEBUG_num(data, data_length);

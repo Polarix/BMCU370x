@@ -61,7 +61,7 @@ extern "C"
     extern float bambu_bus_get_filament_meters(int num);
     void bambu_bus_set_filament_online_state(int num, bool if_online);
     bool bambu_bus_filament_is_online(int num);
-    filament_motion_set_t get_filament_motion(int num);
+    filament_motion_set_t bambu_bus_get_filament_motion_set(int num);
     extern void set_filament_motion(int num, filament_motion_set_t motion);
 
     #ifdef __cplusplus

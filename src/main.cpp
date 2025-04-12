@@ -28,8 +28,8 @@ void RGB_set(uint8_t CHx, uint8_t R, uint8_t G, uint8_t B)
 {
     RGBOUT[CHx].set_RGB(R, G, B, 0);
 }
-extern void BambuBUS_UART_Init();
-extern void send_uart(const uint8_t *data, uint16_t length);
+extern void bambu_bus_init_usart();
+extern void bambu_bus_send_data(const uint8_t *data, uint16_t length);
 
 void setup()
 {
