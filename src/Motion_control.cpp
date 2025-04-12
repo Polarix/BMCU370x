@@ -120,7 +120,7 @@ public:
     }
     void run(float now_speed)
     {
-        uint16_t device_type = get_now_BambuBus_device_type();
+        uint16_t device_type = bambu_bus_get_device_type();
         uint64_t time_now = get_time64();
         static uint64_t time_last = 0;
         float speed_set = 0;
@@ -341,7 +341,7 @@ void AS5600_distance_updata()
         float speedx = distance_E / T * 1000;
         // T = speed_filter_k / (T + speed_filter_k);
         speed_as5600[i] = speedx; // * (1 - T) + speed_as5600[i] * T; // mm/s
-        add_filament_meters(i, distance_E / 1000);
+        bambu_bus_add_filament_meters(i, distance_E / 1000);
     }
     time_last = time_now;
 }
@@ -389,11 +389,11 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
 
 void motor_motion_switch()
 {
-    int num = get_now_filament_num();
-    uint16_t device_type = get_now_BambuBus_device_type();
+    int num = bambu_bus_get_filament_num();
+    uint16_t device_type = bambu_bus_get_device_type();
     if (num == 0xFF)
         return;
-    if (get_filament_online(num))
+    if (bambu_bus_filament_is_online(num))
     {
         switch (get_filament_motion(num))
         {
@@ -454,7 +454,7 @@ void motor_motion_run(int error)
     uint64_t A1X_OUT_TIME = 2300;
     uint64_t P1X_OUT_TIME = 3100;
     uint64_t OUT_TIME = 8000;
-    uint16_t device_type = get_now_BambuBus_device_type();
+    uint16_t device_type = bambu_bus_get_device_type();
 
     if (!error) {
         // 根据设备类型执行不同的电机控制逻辑
@@ -473,7 +473,7 @@ void motor_motion_run(int error)
 
     for (int i = 0; i < 4; i++)
     {
-        if (!get_filament_online(i))
+        if (!bambu_bus_filament_is_online(i))
             MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
         MOTOR_CONTROL[i].run(speed_as5600[i]);
     }
@@ -489,18 +489,18 @@ void Motion_control_run(int error)
     {
         if ((ONLINE_key_stu[i] == 0))
         {
-            set_filament_online(i, true);
+            bambu_bus_set_filament_online_state(i, true);
         }
         else if ((filament_now_position[i] != filament_redetect) && (filament_now_position[i] != filament_pulling_back))
         {
-            set_filament_online(i, false);
+            bambu_bus_set_filament_online_state(i, false);
         }
     }
     if (error)
     {
         for (int i = 0; i < 4; i++)
         {
-            set_filament_online(i, false);
+            bambu_bus_set_filament_online_state(i, false);
             if (PULL_key_stu[i] == 0)
             {
                 RGB_set(i, 0xFF, 0x00, 0x00);
@@ -590,49 +590,6 @@ void MC_PWM_init()
     TIM_CtrlPWMOutputs(TIM4, ENABLE);
     TIM_ARRPreloadConfig(TIM4, ENABLE);
     TIM_Cmd(TIM4, ENABLE);
-}
-
-void MOTOR_get_pwm_zero()
-{
-    float pwm_zero[4] = {0, 0, 0, 0};
-    MC_AS5600.updata_angle();
-
-    int16_t last_angle[4];
-    for (int index = 0; index < 4; index++)
-    {
-        last_angle[index] = MC_AS5600.raw_angle[index];
-    }
-    for (int pwm = 300; pwm < 1000; pwm += 10)
-    {
-        MC_AS5600.updata_angle();
-        for (int index = 0; index < 4; index++)
-        {
-
-            if (pwm_zero[index] == 0)
-            {
-                if (abs(MC_AS5600.raw_angle[index] - last_angle[index]) > 50)
-                {
-                    pwm_zero[index] = pwm;
-                    pwm_zero[index] *= 0.90;
-                    Motion_control_set_PWM(index, 0);
-                }
-                else if ((MC_AS5600.online[index] == true))
-                {
-                    Motion_control_set_PWM(index, -pwm);
-                }
-            }
-            else
-            {
-                Motion_control_set_PWM(index, 0);
-            }
-        }
-        delay(100);
-    }
-    for (int index = 0; index < 4; index++)
-    {
-        Motion_control_set_PWM(index, 0);
-        MOTOR_CONTROL[index].set_pwm_zero(pwm_zero[index]);
-    }
 }
 
 int M5600_angle_dis(int16_t angle1, int16_t angle2)
@@ -741,7 +698,6 @@ void MOTOR_get_dir()
 }
 void MOTOR_init()
 {
-
     MC_PWM_init();
     MC_AS5600.init(AS5600_SCL, AS5600_SDA, 4);
     MC_AS5600.updata_angle();
@@ -749,7 +705,7 @@ void MOTOR_init()
     {
         as5600_distance_save[i] = MC_AS5600.raw_angle[i];
     }
-    // MOTOR_get_pwm_zero();
+
     MOTOR_get_dir();
     for (int index = 0; index < 4; index++)
     {
@@ -761,10 +717,8 @@ void MOTOR_init()
 
 void Motion_control_init()
 {
-
     MC_PULL_key_init();
     MC_ONLINE_key_init();
-
     MOTOR_init();
     for (int i = 0; i < 4; i++)
     {

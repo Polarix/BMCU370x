@@ -149,7 +149,7 @@ void AS5600_soft_IIC_many::init_iic()
         error[i] = 0;
     }
 }
-void AS5600_soft_IIC_many::start_iic(unsigned char ADR)
+void AS5600_soft_IIC_many::start_iic(uint8_t ADR)
 {
     iic_delay();
     SET_H(port_SDA, pin_SDA);

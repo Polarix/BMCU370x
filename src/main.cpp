@@ -24,12 +24,12 @@ void RGB_update()
     RGBOUT[2].updata();
     RGBOUT[3].updata();
 }
-void RGB_set(unsigned char CHx, unsigned char R, unsigned char G, unsigned char B)
+void RGB_set(uint8_t CHx, uint8_t R, uint8_t G, uint8_t B)
 {
     RGBOUT[CHx].set_RGB(R, G, B, 0);
 }
 extern void BambuBUS_UART_Init();
-extern void send_uart(const unsigned char *data, uint16_t length);
+extern void send_uart(const uint8_t *data, uint16_t length);
 
 void setup()
 {
@@ -43,7 +43,7 @@ void setup()
     RGBOUT[3].set_RGB(0x00, 0x00, 0x00, 0);
     RGB_update();
     
-    BambuBus_init();
+    bambu_bus_init();
     DEBUG_init();
     Motion_control_init();
     delay(1);
@@ -62,42 +62,40 @@ uint8_t T_to_tangle(uint32_t time)
 
 void loop()
 {
-
-    while (1)
+    bambu_bus_package_type_t stu = bambu_bus_ticks_handler();
+    // int stu =-1;
+    static int error = 0;
+    bool motion_can_run = false;
+    bambu_bus_device_type_t device_type = bambu_bus_get_device_type();
+    if (stu != BambuBus_package_NONE) // have data/offline
     {
-        package_type stu = BambuBus_run();
-        // int stu =-1;
-        static int error = 0;
-        bool motion_can_run = false;
-        uint16_t device_type = get_now_BambuBus_device_type();
-        if (stu != BambuBus_package_NONE) // have data/offline
+        motion_can_run = true;
+        if (stu == BambuBus_package_ERROR) // offline
         {
-            motion_can_run = true;
-            if (stu == BambuBus_package_ERROR) // offline
+            error = -1;
+            SYS_RGB.set_RGB(0x30, 0x00, 0x00, 0);
+            RGB_update();
+        }
+        else // have data
+        {
+            error = 0;
+            if (stu == BambuBus_package_heartbeat)
             {
-                error = -1;
-                SYS_RGB.set_RGB(0x30, 0x00, 0x00, 0);
+                if(device_type==BambuBus_AMS_lite)
+                    SYS_RGB.set_RGB(0x00, 0x00, 0x10, 0);
+                else if(device_type==BambuBus_AMS)
+                    SYS_RGB.set_RGB(0x10, 0x10, 0x00, 0);
                 RGB_update();
             }
-            else // have data
-            {
-                error = 0;
-                if (stu == BambuBus_package_heartbeat)
-                {
-                    if(device_type==BambuBus_AMS_lite)
-                        SYS_RGB.set_RGB(0x00, 0x00, 0x10, 0);
-                    else if(device_type==BambuBus_AMS)
-                        SYS_RGB.set_RGB(0x10, 0x10, 0x00, 0);
-                    RGB_update();
-                }
-            }
         }
-        else//wait for data
-        {
+    }
+    else//wait for data
+    {
 
-        }
-        if (motion_can_run)
-            Motion_control_run(error);
+    }
+    if (motion_can_run)
+    {
+        Motion_control_run(error);    
     }
 }
 /*

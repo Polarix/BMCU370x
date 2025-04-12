@@ -2,27 +2,30 @@
 
 #include "main.h"
 
-#define Bambubus_version 5
+#define BAMBU_BUS_VER 5
+#define BAMBU_BUS_FILAMENT_NUM_MAX 4
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-    enum _filament_status
+    typedef enum _filament_state_
     {
         offline,
         online,
         NFC_waiting
-    };
-    enum _filament_motion_state_set
+    }filament_state_t;
+
+    typedef enum _filament_motion_set_
     {
         need_pull_back,
         need_send_out,
         on_use,
         idle
-    };
-    enum package_type
+    }filament_motion_set_t;
+
+    typedef enum _bambu_bus_package_type_
     {
         BambuBus_package_ERROR = -1,
         BambuBus_package_NONE = 0,
@@ -38,28 +41,29 @@ extern "C"
         BambuBus_package_heartbeat,
         BambuBus_package_ETC,
         __BambuBus_package_packge_type_size
-    };
-    enum BambuBus_device_type
+    }bambu_bus_package_type_t;
+
+    typedef enum _bambu_bus_device_type_
     {
         BambuBus_none=0x0000,
         BambuBus_AMS=0x0700,
         BambuBus_AMS_lite=0x1200,
-    };
-    extern void BambuBus_init();
-    extern package_type BambuBus_run();
-#define max_filament_num 4
-    extern bool Bambubus_read();
-    extern void Bambubus_set_need_to_save();
-    extern int get_now_filament_num();
-    extern uint16_t get_now_BambuBus_device_type();
-    extern void reset_filament_meters(int num);
-    extern void add_filament_meters(int num, float meters);
-    extern float get_filament_meters(int num);
-    extern void set_filament_online(int num, bool if_online);
-    extern bool get_filament_online(int num);
-    _filament_motion_state_set get_filament_motion(int num);
-    extern void set_filament_motion(int num, _filament_motion_state_set motion);
-    extern bool BambuBus_if_on_print();
-#ifdef __cplusplus
+    }bambu_bus_device_type_t;
+
+    void bambu_bus_init(void);
+    bambu_bus_package_type_t bambu_bus_ticks_handler(void);
+    bool bambu_bus_load_config(void);
+    void bambu_bus_save_config_later(void);
+    void bambu_bus_save_config_now(void);
+    int bambu_bus_get_filament_num(void);
+    bambu_bus_device_type_t bambu_bus_get_device_type();
+    extern void bambu_bus_add_filament_meters(int num, float meters);
+    extern float bambu_bus_get_filament_meters(int num);
+    void bambu_bus_set_filament_online_state(int num, bool if_online);
+    bool bambu_bus_filament_is_online(int num);
+    filament_motion_set_t get_filament_motion(int num);
+    extern void set_filament_motion(int num, filament_motion_set_t motion);
+
+    #ifdef __cplusplus
 }
 #endif

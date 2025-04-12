@@ -4,7 +4,7 @@
 #define RGB_H() port->BSHR = pin
 #define RGB_L() port->BCR = pin
 
-void WS2812_class::init(unsigned char _num, uint32_t _GPIO_pin)
+void WS2812_class::init(uint8_t _num, uint32_t _GPIO_pin)
 {
     num = _num;
     RGB_buf = new uint32_t[num * 3];
@@ -23,7 +23,7 @@ WS2812_class::~WS2812_class()
 
 void WS2812_class::clear(void)
 {
-    unsigned char i;
+    uint8_t i;
     for (i = 0; i < num * 3; i++)
     {
         RGB_buf[i] = 0;
@@ -57,7 +57,7 @@ void WS2812_class::updata()
     }
     RST();
 }
-void WS2812_class::set_RGB(unsigned char R, unsigned char G, unsigned char B, unsigned char index)
+void WS2812_class::set_RGB(uint8_t R, uint8_t G, uint8_t B, uint8_t index)
 {
     uint32_t DATA = 0;
     int i;

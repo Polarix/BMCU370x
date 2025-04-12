@@ -33,7 +33,7 @@ private:
     uint16_t *pin_SCL;
     
     void init_iic();
-    void start_iic(unsigned char ADR);
+    void start_iic(uint8_t ADR);
     void stop_iic();
     void write_iic(uint8_t byte);
     void read_iic(bool ack);
