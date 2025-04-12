@@ -5,12 +5,12 @@
 #include <stddef.h>
 #include <ch32v20x_gpio.h>
 
-class AS5600_soft_IIC_many
+class CAS5600
 {
 public:
-    explicit AS5600_soft_IIC_many(void);
-    virtual ~AS5600_soft_IIC_many(void);
-    void init(uint32_t* GPIO_SCL, uint32_t* GPIO_SDA,int num);
+    explicit CAS5600(void);
+    virtual ~CAS5600(void);
+    void init(const uint32_t* GPIO_SCL, const uint32_t* GPIO_SDA,int num);
 
     bool *online;
     enum _AS5600_magnet_stu
@@ -24,10 +24,11 @@ public:
 
     void updata_stu();
     void updata_angle();
-    int numbers;uint16_t *data;
+    int numbers;
+    uint16_t *data;
 private:
 
-    int *error;
+    int* error; /* 读写数据时是否有错误发生，用来标记从机是否在线，与online成员关联。 */
     uint32_t *IO_SDA;
     uint32_t *IO_SCL;
     GPIO_TypeDef **port_SDA;
