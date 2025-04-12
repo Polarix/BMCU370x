@@ -1,11 +1,9 @@
 #include "BambuBus.h"
+#include <rs485_bsp.h>
 #include "CRC16.h"
 #include "CRC8.h"
 
 #define FILAMENT_CONFIG_SAVE_ADDR ((uint32_t)0x0800F000)
-
-static void bambu_bus_init_usart(void);
-static void bambu_bus_send_data(const uint8_t *data, uint16_t length);
 
 uint8_t buf_X[1000];
 CRC8 s_crc8_rx_check;
@@ -217,8 +215,7 @@ void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
     }
 }
 
-#include <stdio.h>
-
+#if 0
 DMA_InitTypeDef Bambubus_DMA_InitStructure;
 
 static void bambu_bus_send_data(const uint8_t *data, uint16_t length)
@@ -290,7 +287,7 @@ static void bambu_bus_init_usart(void)
 
     USART_Cmd(USART1, ENABLE);
 }
-
+#endif
 extern "C" void USART1_IRQHandler(void) __attribute__((interrupt("WCH-Interrupt-fast")));
 void USART1_IRQHandler(void)
 {
@@ -304,6 +301,7 @@ void USART1_IRQHandler(void)
         GPIOA->BCR = GPIO_Pin_12;
     }
 }
+
 void bambu_bus_init(void)
 {
     bool _init_ready = bambu_bus_load_config();
