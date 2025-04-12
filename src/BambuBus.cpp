@@ -341,7 +341,7 @@ void package_send_with_crc(uint8_t *data, int data_length)
     bambu_bus_send_data(data, data_length);
     if (need_debug)
     {
-        DEBUG_num(data, data_length);
+        DEBUG_RAW(data, data_length);
         need_debug = false;
     }
 }
@@ -1070,7 +1070,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
             send_for_motion_short(s_receive_dump, data_length);
             break;
         case BambuBus_package_filament_motion_long:
-            DEBUG_num(s_receive_dump, data_length);
+        DEBUG_RAW(s_receive_dump, data_length);
             send_for_motion_long(s_receive_dump, data_length);
             time_motion = timex + 1000;
             break;
