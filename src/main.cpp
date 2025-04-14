@@ -33,8 +33,6 @@ extern void bambu_bus_send_data(const uint8_t *data, uint16_t length);
 
 void setup()
 {
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
-    GPIO_PinRemapConfig(GPIO_Remap_PD01, ENABLE);
     RGB_init();
     SYS_RGB.set_RGB(0x00, 0x00, 0x00, 0);
     RGBOUT[0].set_RGB(0x00, 0x00, 0x00, 0);
