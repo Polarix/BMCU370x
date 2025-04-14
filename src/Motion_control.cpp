@@ -106,7 +106,7 @@ public:
     }
     void set_motion(int _motion, uint64_t over_time)
     {
-        uint64_t time_now = get_time64();
+        uint64_t time_now = get_monotonic_timestamp64_ms();
         motor_stop_time = time_now + over_time;
         if (motion != _motion)
         {
@@ -121,7 +121,7 @@ public:
     void run(float now_speed)
     {
         uint16_t device_type = bambu_bus_get_device_type();
-        uint64_t time_now = get_time64();
+        uint64_t time_now = get_monotonic_timestamp64_ms();
         static uint64_t time_last = 0;
         float speed_set = 0;
         if (time_now >= motor_stop_time)
@@ -228,7 +228,7 @@ uint8_t ONLINE_key_stu_raw[4] = {0, 0, 0, 0};
 uint64_t ONLINE_key_stu_count[4] = {0, 0, 0, 0};
 void MC_ONLINE_key_read(void)
 {
-    uint64_t time_now = get_time64();
+    uint64_t time_now = get_monotonic_timestamp64_ms();
     uint64_t time_set = time_now + 1000;
     ONLINE_key_stu_raw[0] = digitalRead(PD0);
     ONLINE_key_stu_raw[1] = digitalRead(PC15);
@@ -309,7 +309,7 @@ void AS5600_distance_updata()
     float T;
     do
     {
-        time_now = get_time64();
+        time_now = get_monotonic_timestamp64_ms();
     } while (time_now <= time_last); // T!=0
     T = (float)(time_now - time_last);
     MC_AS5600.updata_angle();
@@ -367,7 +367,7 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
         {
             RGB_set(i, 0xFF, 0x00, 0xFF); // 设置RGB灯为紫色
             MOTOR_CONTROL[i].set_motion(filament_motion_pull, 100); // 驱动电机退料
-            uint64_t current_time = get_time64();
+            uint64_t current_time = get_monotonic_timestamp64_ms();
             if (motor_reverse_start_time[i] == 0) // 如果反转开始时间未记录，则记录当前时间
             {
                 motor_reverse_start_time[i] = current_time;
@@ -420,7 +420,7 @@ void motor_motion_switch()
         case on_use:
         {
             static uint64_t time_end = 0;
-            uint64_t time_now = get_time64();
+            uint64_t time_now = get_monotonic_timestamp64_ms();
             if (filament_now_position[num] == filament_sending_out)
             {
                 filament_now_position[num] = filament_using;

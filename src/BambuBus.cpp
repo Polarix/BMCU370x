@@ -490,7 +490,7 @@ void set_motion_res_datas(uint8_t *set_buf, uint8_t AMS_num, uint8_t read_num)
 bool set_motion(uint8_t AMS_num, uint8_t read_num, uint8_t statu_flags, uint8_t fliment_motion_flag)
 {
     static uint64_t time_last = 0;
-    uint64_t time_now = get_time64();
+    uint64_t time_now = get_monotonic_timestamp64_ms();
     uint64_t time_used = time_now - time_last;
     time_last = time_now;
     if (s_bambu_bus_device_type == BambuBus_AMS) // AMS08
@@ -1048,7 +1048,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
     static uint64_t time_set = 0;
     static uint64_t time_motion = 0;
 
-    uint64_t timex = get_time64();
+    uint64_t timex = get_monotonic_timestamp64_ms();
 
     /*for (auto i : data_save.filament)
     {
@@ -1116,7 +1116,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
     if (s_bambu_bus_config_updated)
     {
         bambu_bus_save_config_now();
-        time_set = get_time64() + 1000;
+        time_set = get_monotonic_timestamp64_ms() + 1000;
         s_bambu_bus_config_updated = false;
     }
     // HAL_UART_Transmit(&use_Serial.handle,&s,1,1000);
