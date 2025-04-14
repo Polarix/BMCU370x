@@ -33,8 +33,6 @@ extern void bambu_bus_send_data(const uint8_t *data, uint16_t length);
 
 void setup()
 {
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
-    GPIO_PinRemapConfig(GPIO_Remap_PD01, ENABLE);
     RGB_init();
     SYS_RGB.set_RGB(0x00, 0x00, 0x00, 0);
     RGBOUT[0].set_RGB(0x00, 0x00, 0x00, 0);
@@ -42,9 +40,9 @@ void setup()
     RGBOUT[2].set_RGB(0x00, 0x00, 0x00, 0);
     RGBOUT[3].set_RGB(0x00, 0x00, 0x00, 0);
     RGB_update();
-    
+    debug_init();
+    WRN_LOG("System init done, bambu bus ver %d.", BAMBU_BUS_VER);
     bambu_bus_init();
-    DEBUG_INIT();
     Motion_control_init();
     delay(1);
 }

@@ -129,7 +129,8 @@ bool bambu_bus_filament_is_online(int num)
     return is_online;
 }
 
-void set_filament_motion(int num, filament_motion_set_t motion)
+/* 设置耗材通道的状态，此函数由MC模块调用。 */
+void bambu_bus_set_filament_motion_state(int num, filament_motion_set_t motion)
 {
     if (num < 16)
     {
@@ -341,7 +342,7 @@ void package_send_with_crc(uint8_t *data, int data_length)
     bambu_bus_send_data(data, data_length);
     if (need_debug)
     {
-        DEBUG_RAW(data, data_length);
+        RAW_LOG(data, data_length);
         need_debug = false;
     }
 }
@@ -489,7 +490,7 @@ void set_motion_res_datas(uint8_t *set_buf, uint8_t AMS_num, uint8_t read_num)
 bool set_motion(uint8_t AMS_num, uint8_t read_num, uint8_t statu_flags, uint8_t fliment_motion_flag)
 {
     static uint64_t time_last = 0;
-    uint64_t time_now = get_time64();
+    uint64_t time_now = get_monotonic_timestamp64_ms();
     uint64_t time_used = time_now - time_last;
     time_last = time_now;
     if (s_bambu_bus_device_type == BambuBus_AMS) // AMS08
@@ -1047,7 +1048,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
     static uint64_t time_set = 0;
     static uint64_t time_motion = 0;
 
-    uint64_t timex = get_time64();
+    uint64_t timex = get_monotonic_timestamp64_ms();
 
     /*for (auto i : data_save.filament)
     {
@@ -1070,7 +1071,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
             send_for_motion_short(s_receive_dump, data_length);
             break;
         case BambuBus_package_filament_motion_long:
-        DEBUG_RAW(s_receive_dump, data_length);
+            RAW_LOG(s_receive_dump, data_length);
             send_for_motion_long(s_receive_dump, data_length);
             time_motion = timex + 1000;
             break;
@@ -1115,7 +1116,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
     if (s_bambu_bus_config_updated)
     {
         bambu_bus_save_config_now();
-        time_set = get_time64() + 1000;
+        time_set = get_monotonic_timestamp64_ms() + 1000;
         s_bambu_bus_config_updated = false;
     }
     // HAL_UART_Transmit(&use_Serial.handle,&s,1,1000);

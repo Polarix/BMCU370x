@@ -6,7 +6,7 @@ class WS2812_class
 {
 public:
     uint32_t *RGB_buf;
-	uint8_t num;
+	uint8_t m_num;
     uint32_t GPIO_pin;
     WS2812_class(){}
     ~WS2812_class();
