@@ -1,16 +1,24 @@
-#include "Debug_log.h"
-#include <inttypes.h>
+//===========================================================//
+//= Include files.                                          =//
+//===========================================================//
+#include <debug_log_bsp.h>
+#include <ch32v20x_usart.h>
+#include <ch32v20x_dma.h>
+#include <ch32v20x_gpio.h>
 
-#ifdef Debug_log_on
-uint32_t stack[1000];
-//mbed::Timer USB_debug_timer;
-DMA_InitTypeDef Debug_log_DMA_InitStructure;
+//===========================================================//
+//= Static function declare.                                =//
+//===========================================================//
+static void debug_log_bsp_init_dma(void);
 
+//===========================================================//
+//= Static variable defition.                               =//
+//===========================================================//
+static DMA_InitTypeDef Debug_log_DMA_InitStructure;
+static volatile uint8_t s_dma_tx_busy = 0;
 
-void Debug_log_init()
+void debug_log_bsp_init(void)
 {
-
-
     GPIO_InitTypeDef  GPIO_InitStructure = {0};
     USART_InitTypeDef USART_InitStructure = {0};
     NVIC_InitTypeDef  NVIC_InitStructure = {0};
@@ -29,7 +37,7 @@ void Debug_log_init()
     GPIO_Init(GPIOB, &GPIO_InitStructure);
 
 
-    USART_InitStructure.USART_BaudRate = Debug_log_baudrate;
+    USART_InitStructure.USART_BaudRate = DEBUG_LOG_BAUDRATE;
     USART_InitStructure.USART_WordLength = USART_WordLength_9b;
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
     USART_InitStructure.USART_Parity = USART_Parity_Even;
@@ -39,12 +47,22 @@ void Debug_log_init()
     USART_Init(USART3, &USART_InitStructure);
     USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);
 
+    debug_log_bsp_init_dma();
+
     NVIC_InitStructure.NVIC_IRQChannel = USART3_IRQn;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
     NVIC_InitStructure.NVIC_IRQChannelSubPriority = 1;
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 
+    USART_Cmd(USART3, ENABLE);
+
+    /* 使能 USART3 的 DMA 发送请求 */
+    USART_DMACmd(USART3, USART_DMAReq_Tx, ENABLE);
+}
+
+static void debug_log_bsp_init_dma(void)
+{
     // Configure DMA1 channel 2 for USART3 TX
     Debug_log_DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)&USART3->DATAR;
     Debug_log_DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)0;
@@ -58,50 +76,51 @@ void Debug_log_init()
     Debug_log_DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
     Debug_log_DMA_InitStructure.DMA_BufferSize = 0;
 
-    USART_Cmd(USART3, ENABLE);
-
-
+    DMA_Init(DMA1_Channel2, &Debug_log_DMA_InitStructure);
+    // 使能 DMA 传输完成中断
+    DMA_ITConfig(DMA1_Channel2, DMA_IT_TC, ENABLE);   // 关键步骤！
+    DMA_Cmd(DMA1_Channel2, ENABLE);                   // 启动 DMA 通道
 }
 
-uint64_t Debug_log_count64()
+void debug_log_bsp_send_data(const void* data, uint32_t len)
 {
-    return 0;
-}
-
-void Debug_log_time()
-{
-
-}
-
-void Debug_log_write(const void *data)
-{
-
-    int i = strlen((const char*)data);
-    Debug_log_write_num((const char*)data,i);
-
-}
-
-void Debug_log_write_num(const void *data, int num)
-{
+    /* 等待上一次DMA传输完成 */
+    while(!DMA_GetFlagStatus((DMA1_FLAG_TC2)));
+    DMA_Cmd(DMA1_Channel2, DISABLE);
     DMA_DeInit(DMA1_Channel2);
     // Configure DMA1 channel 2 for USART3 TX
     Debug_log_DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)data;
-    Debug_log_DMA_InitStructure.DMA_BufferSize = num;
+    Debug_log_DMA_InitStructure.DMA_BufferSize = len;
     DMA_Init(DMA1_Channel2, &Debug_log_DMA_InitStructure);
     DMA_Cmd(DMA1_Channel2, ENABLE);
     // 使能USART3 DMA发送
-    USART_DMACmd(USART3, USART_DMAReq_Tx, ENABLE);
+    s_dma_tx_busy = 1;
+    // USART_DMACmd(USART3, USART_DMAReq_Tx, ENABLE);
 }
 
-
-void USART3_IRQHandler(void)
+void DMA1_Channel2_IRQHandler(void)
 {
-    if (USART_GetITStatus(USART3, USART_IT_RXNE) != RESET)
+    if (DMA_GetITStatus(DMA1_IT_TC2))
     {
-        //uint8_t x = 
-        USART_ReceiveData(USART3);
-        //USART_SendData(USART3, x);
+        DMA_ClearITPendingBit(DMA1_IT_TC2);    // 清除中断标志
+        s_dma_tx_busy = 0;
     }
 }
 
-#endif
+void USART3_IRQHandler(void)
+{
+    if (USART_GetITStatus(USART3, USART_IT_RXNE))
+    {
+        USART_ClearFlag(USART3, USART_IT_RXNE);
+        // USART_ReceiveData(USART3);
+    }
+    if(USART_GetITStatus(USART3, USART_IT_IDLE))
+    {
+        USART_ClearFlag(USART3, USART_IT_IDLE);
+    }
+}
+
+bool debug_log_bsp_isbusy(void)
+{
+    return s_dma_tx_busy;
+}

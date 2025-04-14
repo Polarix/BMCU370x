@@ -42,9 +42,9 @@ void setup()
     RGBOUT[2].set_RGB(0x00, 0x00, 0x00, 0);
     RGBOUT[3].set_RGB(0x00, 0x00, 0x00, 0);
     RGB_update();
-    
+    debug_init();
+    WRN_LOG("System init done, bambu bus ver %d.", BAMBU_BUS_VER);
     bambu_bus_init();
-    DEBUG_init();
     Motion_control_init();
     delay(1);
 }
