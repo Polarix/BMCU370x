@@ -129,7 +129,8 @@ bool bambu_bus_filament_is_online(int num)
     return is_online;
 }
 
-void set_filament_motion(int num, filament_motion_set_t motion)
+/* 设置耗材通道的状态，此函数由MC模块调用。 */
+void bambu_bus_set_filament_motion_state(int num, filament_motion_set_t motion)
 {
     if (num < 16)
     {

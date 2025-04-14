@@ -378,7 +378,7 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
                 MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100); // 停止电机
                 MOTOR_CONTROL[i].set_motion(filament_motion_no_resistance, 100); // 设置无阻力模式
                 filament_now_position[i] = filament_idle; // 设置当前位置为空闲
-                set_filament_motion(i, idle); // 设置当前耗材状态为空闲
+                bambu_bus_set_filament_motion_state(i, idle); // 设置当前耗材状态为空闲
                 motor_reverse_start_time[i] = 0; // 重置反转开始时间
             }
             wait = true;

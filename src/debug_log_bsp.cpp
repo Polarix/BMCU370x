@@ -88,12 +88,12 @@ void debug_log_bsp_send_data(const void* data, uint32_t len)
     while(!DMA_GetFlagStatus((DMA1_FLAG_TC2)));
     DMA_Cmd(DMA1_Channel2, DISABLE);
     DMA_DeInit(DMA1_Channel2);
-    // Configure DMA1 channel 2 for USART3 TX
+    /* 设置传输数据源和长度 */
     Debug_log_DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)data;
     Debug_log_DMA_InitStructure.DMA_BufferSize = len;
     DMA_Init(DMA1_Channel2, &Debug_log_DMA_InitStructure);
     DMA_Cmd(DMA1_Channel2, ENABLE);
-    // 使能USART3 DMA发送
+    /* 设置DMA传输中标记。 */
     s_dma_tx_busy = 1;
     // USART_DMACmd(USART3, USART_DMAReq_Tx, ENABLE);
 }
