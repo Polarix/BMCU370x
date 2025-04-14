@@ -10,8 +10,6 @@
 //===========================================================//
 //= Macro definition.                                       =//
 //===========================================================//
-#define DEBUG_USART_EN
-
 #ifdef DEBUG_USART_EN
 #define TRC_LOG(FMT, ...)   dbg_log_fmt("[T]" FMT "\n", ##__VA_ARGS__ )
 #define INF_LOG(FMT, ...)   dbg_log_fmt("[I]" FMT "\n", ##__VA_ARGS__ )

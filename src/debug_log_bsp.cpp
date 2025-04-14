@@ -45,7 +45,7 @@ void debug_log_bsp_init(void)
     USART_InitStructure.USART_Mode = USART_Mode_Tx | USART_Mode_Rx;
 
     USART_Init(USART3, &USART_InitStructure);
-    USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);
+    // USART_ITConfig(USART3, USART_IT_RXNE, ENABLE);
 
     debug_log_bsp_init_dma();
 
@@ -84,8 +84,6 @@ static void debug_log_bsp_init_dma(void)
 
 void debug_log_bsp_send_data(const void* data, uint32_t len)
 {
-    /* 等待上一次DMA传输完成 */
-    while(!DMA_GetFlagStatus((DMA1_FLAG_TC2)));
     DMA_Cmd(DMA1_Channel2, DISABLE);
     DMA_DeInit(DMA1_Channel2);
     /* 设置传输数据源和长度 */
