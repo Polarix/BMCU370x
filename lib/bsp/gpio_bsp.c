@@ -21,7 +21,9 @@ static GPIO_InitTypeDef s_gpio_output_init_struct;
 //===========================================================//
 void gpio_bsp_init(void)
 {
-    RCC_APB2PeriphClockCmd( RCC_APB2Periph_GPIOB, ENABLE);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
+    GPIO_PinRemapConfig(GPIO_Remap_PD01, ENABLE);
+    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD, ENABLE);
 
     GPIO_StructInit(&s_gpio_input_init_struct);
     GPIO_StructInit(&s_gpio_output_init_struct);
