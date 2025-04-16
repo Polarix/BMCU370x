@@ -10,14 +10,14 @@
 //===========================================================//
 typedef void(*rs485_byte_rev_handle)(uint8_t byte);
 
+//===========================================================//
+//= Public function declaration.                            =//
+//===========================================================//
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-//===========================================================//
-//= Public function declaration.                            =//
-//===========================================================//
 void bambu_bus_send_data(const uint8_t *data, uint16_t length);
 void bambu_bus_init_usart(void);
 void rs_485_bsp_register_byte_rev_callback(rs485_byte_rev_handle callback);
