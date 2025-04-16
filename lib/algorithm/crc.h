@@ -22,7 +22,6 @@ typedef struct _st_crc16_data_
     uint16_t    xor_out;
     bool        reverse_in;
     bool        reverse_out;
-    bool        byte_swap;
     uint16_t    cala;
 }crc16_t;
 
@@ -48,9 +47,9 @@ uint8_t crc8_bambu_bus(const uint8_t *data, size_t length);
 
 
 // ==================== CRC16 Basic functions ====================
-void crc16_init(crc16_t* crc16, uint16_t polynomial, uint16_t init, bool refin, bool refout, uint16_t xorout, bool byte_swap);
+void crc16_init(crc16_t* crc16, uint16_t polynomial, uint16_t init, bool refin, bool refout, uint16_t xorout);
 uint16_t crc16_step(crc16_t* crc16, uint8_t byte);
-uint16_t crc16_finialize(crc16_t* crc16);
+uint16_t crc16_finialize(crc16_t* crc16, bool byte_swap);
 // ==================== CRC16 Preset parameters ====================
 // CRC-16/CCITT-FALSE
 uint16_t crc16_ccitt_false(const uint8_t *data, size_t length);

@@ -109,13 +109,12 @@ uint8_t crc8_bambu_bus(const uint8_t *data, size_t length)
     return crc8_finialize(&crc8);
 }
 
-void crc16_init(crc16_t* crc16, uint16_t polynomial, uint16_t init, bool refin, bool refout, uint16_t xorout, bool byte_swap)
+void crc16_init(crc16_t* crc16, uint16_t polynomial, uint16_t init, bool refin, bool refout, uint16_t xorout)
 {
     crc16->polynome = polynomial;
     crc16->initial = init;
     crc16->reverse_in = refin;
     crc16->reverse_out = refout;
-    crc16->byte_swap = byte_swap;
     crc16->xor_out = xorout;
     crc16->cala = init;
 }
@@ -146,7 +145,7 @@ uint16_t crc16_step(crc16_t* crc16, uint8_t byte)
     return crc16->cala;
 }
 
-uint16_t crc16_finialize(crc16_t* crc16)
+uint16_t crc16_finialize(crc16_t* crc16, bool byte_swap)
 {
     if (crc16->reverse_out)
     {
@@ -156,7 +155,7 @@ uint16_t crc16_finialize(crc16_t* crc16)
         crc16->cala = (( crc16->cala >> 8) | (crc16->cala << 8));
     }
     crc16->cala = crc16->cala ^ crc16->xor_out;
-    if(crc16->byte_swap)
+    if(byte_swap)
     {
         crc16->cala = (crc16->cala >> 8) | (crc16->cala << 8);
     }
@@ -167,106 +166,106 @@ uint16_t crc16_ccitt_false(const uint8_t *data, size_t length)
 {
     // CRC-16/CCITT-FALSE
     crc16_t crc16;
-    crc16_init(&crc16, 0x1021, 0xFFFF, false, false, 0x0000, false);
+    crc16_init(&crc16, 0x1021, 0xFFFF, false, false, 0x0000);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_ccitt_true(const uint8_t *data, size_t length)
 {
     // CRC-16/CCITT (KERMIT)
     crc16_t crc16;
-    crc16_init(&crc16, 0x1021, 0x0000, true, true, 0x0000, false);
+    crc16_init(&crc16, 0x1021, 0x0000, true, true, 0x0000);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_modbus(const uint8_t *data, size_t length)
 {
     // CRC-16/MODBUS
     crc16_t crc16;
-    crc16_init(&crc16, 0x8005, 0xFFFF, true, true, 0x0000, false);
+    crc16_init(&crc16, 0x8005, 0xFFFF, true, true, 0x0000);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_usb(const uint8_t *data, size_t length)
 {
     // CRC-16/USB
     crc16_t crc16;
-    crc16_init(&crc16, 0x8005, 0xFFFF, true, true, 0xFFFF, false);
+    crc16_init(&crc16, 0x8005, 0xFFFF, true, true, 0xFFFF);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_xmodem(const uint8_t *data, size_t length)
 {
     // CRC-16/XMODEM
     crc16_t crc16;
-    crc16_init(&crc16, 0x1021, 0x0000, false, false, 0x0000, false);
+    crc16_init(&crc16, 0x1021, 0x0000, false, false, 0x0000);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_ibm(const uint8_t *data, size_t length)
 {
     // CRC-16/IBM
     crc16_t crc16;
-    crc16_init(&crc16, 0x8005, 0x0000, true, true, 0x0000, false);
+    crc16_init(&crc16, 0x8005, 0x0000, true, true, 0x0000);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_dnp(const uint8_t *data, size_t length)
 {
     // CRC-16/DNP
     crc16_t crc16;
-    crc16_init(&crc16, 0x3D65, 0x0000, true, true, 0xFFFF, false);
+    crc16_init(&crc16, 0x3D65, 0x0000, true, true, 0xFFFF);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_x25(const uint8_t *data, size_t length)
 {
     // CRC-16/X25
     crc16_t crc16;
-    crc16_init(&crc16, 0x1021, 0xFFFF, true, true, 0xFFFF, false);
+    crc16_init(&crc16, 0x1021, 0xFFFF, true, true, 0xFFFF);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
 
 uint16_t crc16_bambu_bus(const uint8_t *data, size_t length)
 {
     // CRC-16/BAMBU BUS
     crc16_t crc16;
-    crc16_init(&crc16, 0x1021, 0x913D, true, true, 0x0000, true);
+    crc16_init(&crc16, 0x1021, 0x913D, true, true, 0x0000);
     for(size_t i=0; i<length; ++i)
     {
         crc16_step(&crc16, data[i]);
     }
-    return crc16_finialize(&crc16);
+    return crc16_finialize(&crc16, false);
 }
