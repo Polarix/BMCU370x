@@ -1,7 +1,22 @@
+//===========================================================//
+//= Include files.                                          =//
+//===========================================================//
 #include "Motion_control.h"
 
-static void mc_fliament_online_state_update(void);
+//===========================================================//
+//= Macro definition.                                       =//
+//===========================================================//
+#define Motion_control_save_flash_addr ((uint32_t)0x0800E000)
 
+//===========================================================//
+//= Static function declare.                                =//
+//===========================================================//
+static void mc_fliament_online_state_update(void);
+static void mc_set_pwm_value(uint8_t CHx,int PWM);
+
+//===========================================================//
+//= Static variable declaration.                            =//
+//===========================================================//
 AS5600_soft_IIC_many MC_AS5600;
 uint32_t AS5600_SCL[] = {PA6, PA4, PA2, PA0};
 uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
@@ -16,8 +31,10 @@ struct alignas(4) Motion_control_save_struct
     int check = 0x40614061;
 } Motion_control_data_save;
 
-#define Motion_control_save_flash_addr ((uint32_t)0x0800E000)
-bool Motion_control_read()
+//===========================================================//
+//= Function definition.                                    =//
+//===========================================================//
+static bool Motion_control_read(void)
 {
     Motion_control_save_struct *ptr = (Motion_control_save_struct *)(Motion_control_save_flash_addr);
     if (ptr->check == 0x40614061)
@@ -32,7 +49,8 @@ void Motion_control_save()
     Flash_saves(&Motion_control_data_save, sizeof(Motion_control_save_struct), Motion_control_save_flash_addr);
 }
 
-class MOTOR_PID
+/* PID控制器 */
+class CPID
 {
 public:
     float P = 2;
@@ -85,17 +103,18 @@ enum filament_motion_enum
     filament_motion_over_pressure = 101,
 };
 
-class _MOTOR_CONTROL
+/* 电机控制器 */
+class CMotorControl
 {
 public:
     int motion = 0;
     int CHx = 0;
     uint64_t motor_stop_time = 0;
-    MOTOR_PID PID;
+    CPID PID;
     float pwm_zero = 500;
     float dir = 0;
     int x1 = 0;
-    _MOTOR_CONTROL(int _CHx)
+    CMotorControl(int _CHx)
     {
         CHx = _CHx;
         motor_stop_time = 0;
@@ -133,13 +152,13 @@ public:
         if (motion == filament_motion_no_resistance)
         {
             PID.clear();
-            Motion_control_set_PWM(CHx, 0);
+            mc_set_pwm_value(CHx, 0);
             return;
         }
         if (motion == filament_motion_stop) // just stop
         {
             PID.clear();
-            Motion_control_set_PWM(CHx, 0);
+            mc_set_pwm_value(CHx, 0);
             return;
         }
         if (motion == filament_motion_send) // send
@@ -202,11 +221,11 @@ public:
             x = -PWM_lim;
         }
 
-        Motion_control_set_PWM(CHx, x);
+        mc_set_pwm_value(CHx, x);
         time_last = time_now;
     }
 };
-_MOTOR_CONTROL MOTOR_CONTROL[4] = {_MOTOR_CONTROL(0), _MOTOR_CONTROL(1), _MOTOR_CONTROL(2), _MOTOR_CONTROL(3)};
+CMotorControl MOTOR_CONTROL[4] = {CMotorControl(0), CMotorControl(1), CMotorControl(2), CMotorControl(3)};
 void MC_PULL_key_read(void)
 {
     /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
@@ -280,7 +299,7 @@ void MC_ONLINE_key_init()
     mc_fliament_online_state_update();
 }
 
-void Motion_control_set_PWM(uint8_t CHx, int PWM)
+void mc_set_pwm_value(uint8_t CHx, int PWM)
 {
     uint16_t set1 = 0, set2 = 0;
     if (PWM > 0)
@@ -498,7 +517,7 @@ void motor_motion_run(int error)
     }
 }
 
-void Motion_control_run(int error)
+void mc_ticks_handler(int error)
 {
     MC_PULL_key_read();
     mc_fliament_online_state_update();
@@ -653,7 +672,7 @@ void MOTOR_get_dir()
         {
             if (Motion_control_data_save.Motion_control_dir[index] == 0) // 之前测试结果为0，需要测试
             {
-                Motion_control_set_PWM(index, 1000); // 打开电机
+                mc_set_pwm_value(index, 1000); // 打开电机
                 need_test = true;                    // 设置需要测试
                 need_save = true;                    // 有状态更新
             }
@@ -676,7 +695,7 @@ void MOTOR_get_dir()
         {
             for (int index = 0; index < 4; index++)
             {
-                Motion_control_set_PWM(index, 0); // 停止
+                mc_set_pwm_value(index, 0); // 停止
                 Motion_control_data_save.Motion_control_dir[index] = 0;//方向设为0
             }
             break;//跳出循环
@@ -688,7 +707,7 @@ void MOTOR_get_dir()
                 int angle_dis = M5600_angle_dis(MC_AS5600.raw_angle[index], last_angle[index]);
                 if (abs(angle_dis) > 163) // 移动超过1mm
                 {
-                    Motion_control_set_PWM(index, 0); // 停止
+                    mc_set_pwm_value(index, 0); // 停止
                     if (angle_dis < 0)
                     {
                         dir[index] = 1;
@@ -731,13 +750,13 @@ void MOTOR_init()
     MOTOR_get_dir();
     for (int index = 0; index < 4; index++)
     {
-        Motion_control_set_PWM(index, 0);
+        mc_set_pwm_value(index, 0);
         MOTOR_CONTROL[index].set_pwm_zero(500);
         MOTOR_CONTROL[index].dir = Motion_control_data_save.Motion_control_dir[index];
     }
 }
 
-void Motion_control_init()
+void mc_init()
 {
     MC_PULL_key_init();
     MC_ONLINE_key_init();

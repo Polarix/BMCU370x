@@ -43,7 +43,7 @@ void setup()
     debug_init();
     WRN_LOG("System init done, bambu bus ver %d.", BAMBU_BUS_VER);
     bambu_bus_init();
-    Motion_control_init();
+    mc_init();
     delay(1);
 }
 
@@ -93,7 +93,7 @@ void loop()
     }
     if (motion_can_run)
     {
-        Motion_control_run(error);    
+        mc_ticks_handler(error);    
     }
 }
 /*
