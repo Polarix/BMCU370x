@@ -1068,7 +1068,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
     {
         int data_length = s_bambu_bus_receive_package_len;
         s_bambu_bus_receive_package_len = 0;
-        need_debug = false;
+
         delay(1);
         stu = get_packge_type(s_receive_dump, data_length); // have_data
         switch (stu)
