@@ -1,7 +1,7 @@
 #include "BambuBus.h"
 #include <rs485_bsp.h>
 // #include "CRC16.h"
-#include "CRC8.h"
+// #include "CRC8.h"
 #include <crc_bambu_bus.h>
 
 #define FILAMENT_CONFIG_SAVE_ADDR   ((uint32_t)0x0800F000)
@@ -10,9 +10,9 @@
 static uint32_t s_bambu_bus_receive_package_len = 0;
 static uint8_t s_receive_dump[BAMBU_BUS_REV_BUF_LEN];
 static uint8_t s_bambu_bus_rev_buf[BAMBU_BUS_REV_BUF_LEN];
-static CRC8 s_crc8_rx_check;
+static crc8_t s_crc8_rx_check;
 static crc16_t s_crc16_check;
-static CRC8 s_crc8_tx_check;
+static crc8_t s_crc8_tx_check;
 
 bambu_bus_device_type_t s_bambu_bus_device_type = BambuBus_none;
 
@@ -163,8 +163,8 @@ static void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
         if (rev_byte == 0x3D)
         {
             s_bambu_bus_rev_buf[0] = 0x3D;
-            s_crc8_rx_check.restart();
-            s_crc8_rx_check.add(0x3D);
+            bambu_bus_crc8_init(&s_crc8_rx_check);
+            bambu_bus_crc8_step(&s_crc8_rx_check, 0x3D);
             data_length_index = 4;
             length = data_CRC8_index = 6;
             _index = 1;
@@ -193,11 +193,11 @@ static void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
         }
         if (_index < data_CRC8_index)
         {
-            s_crc8_rx_check.add(rev_byte);
+            bambu_bus_crc8_step(&s_crc8_rx_check, rev_byte);
         }
         else if (_index == data_CRC8_index)
         {
-            if (rev_byte != s_crc8_rx_check.calc())
+            if (rev_byte != bambu_bus_crc8_finialize(&s_crc8_rx_check))
             {
                 _index = 0;
                 return;
@@ -220,11 +220,12 @@ static void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
 void bambu_bus_init(void)
 {
     bool _init_ready = bambu_bus_load_config();
-    s_crc8_tx_check.reset(0x39, 0x66, 0x00, false, false);
-    s_crc8_rx_check.reset(0x39, 0x66, 0x00, false, false);
+    // s_crc8_tx_check.reset(0x39, 0x66, 0x00, false, false);
+    // s_crc8_rx_check.reset(0x39, 0x66, 0x00, false, false);
     // s_crc16_check.reset(0x1021, 0x913D, 0, false, false);
+    bambu_bus_crc8_init(&s_crc8_rx_check);
     bambu_bus_crc16_init(&s_crc16_check);
-    
+    bambu_bus_crc8_init(&s_crc8_tx_check);    
 
     if (!_init_ready)
     {
@@ -312,25 +313,24 @@ bool package_check_crc16(uint8_t *data, int data_length)
     return false;
 }
 
-bool need_debug = false;
 void package_send_with_crc(uint8_t *data, int data_length)
 {
-    s_crc8_tx_check.restart();
+    bambu_bus_crc8_init(&s_crc8_tx_check);
     if (data[1] & 0x80)
     {
         for (auto i = 0; i < 3; i++)
         {
-            s_crc8_tx_check.add(data[i]);
+            bambu_bus_crc8_step(&s_crc8_tx_check, data[i]);
         }
-        data[3] = s_crc8_tx_check.calc();
+        data[3] = bambu_bus_crc8_finialize(&s_crc8_tx_check);
     }
     else
     {
         for (auto i = 0; i < 6; i++)
         {
-            s_crc8_tx_check.add(data[i]);
+            bambu_bus_crc8_step(&s_crc8_tx_check, data[i]);
         }
-        data[6] = s_crc8_tx_check.calc();
+        data[6] = bambu_bus_crc8_finialize(&s_crc8_tx_check);
     }
     bambu_bus_crc16_init(&s_crc16_check);
     data_length -= 2;
@@ -343,11 +343,10 @@ void package_send_with_crc(uint8_t *data, int data_length)
     data[(data_length + 1)] = num >> 8;
     data_length += 2;
     bambu_bus_send_data(data, data_length);
-    if (need_debug)
-    {
-        RAW_LOG(data, data_length);
-        need_debug = false;
-    }
+
+#ifdef DEBUG_RESP_DBG_EN
+    RAW_LOG(data, data_length);
+#endif /* DEBUG_RESP_DBG_EN */
 }
 
 uint8_t packge_send_buf[1000];
