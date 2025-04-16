@@ -17,7 +17,7 @@ uint8_t bambu_bus_crc8_finialize(crc8_t* crc8)
 
 void bambu_bus_crc16_init(crc16_t* crc16)
 {
-    crc16_init(crc16, 0x1021, 0x913D, true, true, 0x0000, false);
+    crc16_init(crc16, 0x1021, 0x913D, false, false, 0x0000);
 }
 
 uint8_t bambu_bus_crc16_step(crc16_t* crc16, uint8_t byte)
@@ -27,5 +27,5 @@ uint8_t bambu_bus_crc16_step(crc16_t* crc16, uint8_t byte)
 
 uint8_t bambu_bus_crc16_finialize(crc16_t* crc16)
 {
-    return crc16_finialize(crc16);
+    return crc16_finialize(crc16, false);
 }
