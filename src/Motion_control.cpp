@@ -1,5 +1,7 @@
 #include "Motion_control.h"
 
+static void mc_fliament_online_state_update(void);
+
 AS5600_soft_IIC_many MC_AS5600;
 uint32_t AS5600_SCL[] = {PA6, PA4, PA2, PA0};
 uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
@@ -207,6 +209,8 @@ public:
 _MOTOR_CONTROL MOTOR_CONTROL[4] = {_MOTOR_CONTROL(0), _MOTOR_CONTROL(1), _MOTOR_CONTROL(2), _MOTOR_CONTROL(3)};
 void MC_PULL_key_read(void)
 {
+    /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
+    /* 原理图中通道编号1/2/3/4分别对应代码中的数组索引3/2/1/0 */
     PULL_key_stu[3] = digitalRead(PB12);
     PULL_key_stu[2] = digitalRead(PB13);
     PULL_key_stu[1] = digitalRead(PB14);
@@ -223,25 +227,40 @@ void MC_PULL_key_init()
     MC_PULL_key_read();
 }
 
-uint8_t ONLINE_key_stu[4] = {0, 0, 0, 0};
-uint8_t ONLINE_key_stu_raw[4] = {0, 0, 0, 0};
-uint64_t ONLINE_key_stu_count[4] = {0, 0, 0, 0};
-void MC_ONLINE_key_read(void)
+/* 最后更新的耗材状态，0为存在，1为不存在 */
+uint8_t s_fliament_online_last_state[4] = {0, 0, 0, 0};
+
+/* 检查并更新耗材存在状态 */
+static void mc_fliament_online_state_update(void)
 {
     uint64_t time_now = get_monotonic_timestamp64_ms();
     uint64_t time_set = time_now + 1000;
-    ONLINE_key_stu_raw[0] = digitalRead(PD0);
-    ONLINE_key_stu_raw[1] = digitalRead(PC15);
-    ONLINE_key_stu_raw[2] = digitalRead(PC14);
-    ONLINE_key_stu_raw[3] = digitalRead(PC13);
 
+    static uint8_t s_filament_online_state[4] = {0, 0, 0, 0};
+    static uint64_t s_fliament_online_state_time_set[4] = {0, 0, 0, 0};
+    /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
+    /* 原理图中通道编号1/2/3/4分别对应代码中的数组索引3/2/1/0 */
+    s_filament_online_state[0] = digitalRead(PD0);
+    s_filament_online_state[1] = digitalRead(PC15);
+    s_filament_online_state[2] = digitalRead(PC14);
+    s_filament_online_state[3] = digitalRead(PC13);
+
+    /* 这里是一个滤波器，在一次状态跳变产生后，1s内不再接受任何变化。 */
     for (int i = 0; i < 4; i++)
     {
-        if (ONLINE_key_stu[i] == ONLINE_key_stu_raw[i])
-            ONLINE_key_stu_count[i] = time_set;
-        else if (ONLINE_key_stu_count[i] < time_now)
+        if (s_fliament_online_last_state[i] == s_filament_online_state[i])
         {
-            ONLINE_key_stu[i] = ONLINE_key_stu_raw[i];
+            /* 如果当前IO状态没有变化，则更新延迟时间戳。 */
+            s_fliament_online_state_time_set[i] = time_set;
+        }
+        else 
+        {
+            /* 如果IO接口产生了变化，则检查时间戳。 */
+            if (s_fliament_online_state_time_set[i] < time_now)
+            {
+                /* 如果当前时间戳在上一次变化时间戳记录的1s后，则更新状态记录。 */
+                s_fliament_online_last_state[i] = s_filament_online_state[i];
+            }
         }
     }
 }
@@ -258,7 +277,7 @@ void MC_ONLINE_key_init()
     GPIO_Init(GPIOC, &GPIO_InitStructure);
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;
     GPIO_Init(GPIOD, &GPIO_InitStructure);
-    MC_ONLINE_key_read();
+    mc_fliament_online_state_update();
 }
 
 void Motion_control_set_PWM(uint8_t CHx, int PWM)
@@ -482,12 +501,12 @@ void motor_motion_run(int error)
 void Motion_control_run(int error)
 {
     MC_PULL_key_read();
-    MC_ONLINE_key_read();
+    mc_fliament_online_state_update();
 
     AS5600_distance_updata();
     for (int i = 0; i < 4; i++)
     {
-        if ((ONLINE_key_stu[i] == 0))
+        if ((s_fliament_online_last_state[i] == 0))
         {
             bambu_bus_set_filament_online_state(i, true);
         }
@@ -504,12 +523,12 @@ void Motion_control_run(int error)
             if (PULL_key_stu[i] == 0)
             {
                 RGB_set(i, 0xFF, 0x00, 0x00);
-                if (ONLINE_key_stu[i] == 0)
+                if (s_fliament_online_last_state[i] == 0)
                 {
                     RGB_set(i, 0xFF, 0x00, 0xFF);
                 }
             }
-            else if (ONLINE_key_stu[i] == 0)
+            else if (s_fliament_online_last_state[i] == 0)
             {
                 RGB_set(i, 0x00, 0x00, 0xFF);
             }
@@ -699,6 +718,9 @@ void MOTOR_get_dir()
 void MOTOR_init()
 {
     MC_PWM_init();
+    /* 初始化AS5600磁编码器通信接口 */
+    /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
+    /* 原理图中通道编号1/2/3/4分别对应代码中的数组索引3/2/1/0 */
     MC_AS5600.init(AS5600_SCL, AS5600_SDA, 4);
     MC_AS5600.updata_angle();
     for (int i = 0; i < 4; i++)
