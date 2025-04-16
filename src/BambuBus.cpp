@@ -4,8 +4,9 @@
 #include <bambu_bus_queue.h>
 #include "BambuBus.h"
 #include <rs485_bsp.h>
-#include "CRC16.h"
+// #include "CRC16.h"
 #include "CRC8.h"
+#include <crc_bambu_bus.h>
 
 #define FILAMENT_CONFIG_SAVE_ADDR   ((uint32_t)0x0800F000)
 #define BAMBU_BUS_REV_BUF_LEN       (1000)
@@ -16,7 +17,7 @@ static uint32_t s_bambu_bus_receive_package_len = 0;
 static uint8_t s_receive_dump[BAMBU_BUS_REV_BUF_LEN];
 static uint8_t s_bambu_bus_rev_buf[BAMBU_BUS_REV_BUF_LEN];
 static CRC8 s_crc8_rx_check;
-static CRC16 s_crc16_check;
+static crc16_t s_crc16_check;
 static CRC8 s_crc8_tx_check;
 
 bambu_bus_device_type_t s_bambu_bus_device_type = BambuBus_none;
@@ -227,7 +228,9 @@ void bambu_bus_init(void)
     bool _init_ready = bambu_bus_load_config();
     s_crc8_tx_check.reset(0x39, 0x66, 0x00, false, false);
     s_crc8_rx_check.reset(0x39, 0x66, 0x00, false, false);
-    s_crc16_check.reset(0x1021, 0x913D, 0, false, false);
+    // s_crc16_check.reset(0x1021, 0x913D, 0, false, false);
+    bambu_bus_crc16_init(&s_crc16_check);
+    
 
     if (!_init_ready)
     {
@@ -305,13 +308,13 @@ void bambu_bus_init(void)
 
 bool package_check_crc16(uint8_t *data, int data_length)
 {
-    s_crc16_check.restart();
+    bambu_bus_crc16_init(&s_crc16_check);
     data_length -= 2;
     for (auto i = 0; i < data_length; i++)
     {
-        s_crc16_check.add(data[i]);
+        bambu_bus_crc16_step(&s_crc16_check, data[i]);
     }
-    uint16_t num = s_crc16_check.calc();
+    uint16_t num = bambu_bus_crc16_finialize(&s_crc16_check);
     if ((data[(data_length)] == (num & 0xFF)) && (data[(data_length + 1)] == ((num >> 8) & 0xFF)))
         return true;
     return false;
@@ -337,13 +340,13 @@ void package_send_with_crc(uint8_t *data, int data_length)
         }
         data[6] = s_crc8_tx_check.calc();
     }
-    s_crc16_check.restart();
+    bambu_bus_crc16_init(&s_crc16_check);
     data_length -= 2;
     for (auto i = 0; i < data_length; i++)
     {
-        s_crc16_check.add(data[i]);
+        bambu_bus_crc16_step(&s_crc16_check, data[i]);
     }
-    uint16_t num = s_crc16_check.calc();
+    uint16_t num = bambu_bus_crc16_finialize(&s_crc16_check);
     data[(data_length)] = num & 0xFF;
     data[(data_length + 1)] = num >> 8;
     data_length += 2;
