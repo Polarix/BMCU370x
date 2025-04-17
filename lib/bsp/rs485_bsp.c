@@ -14,7 +14,7 @@
 //===========================================================//
 //= Static variable defition.                               =//
 //===========================================================//
-static DMA_InitTypeDef s_rs485_dma_cfg;
+static DMA_InitTypeDef s_rs485_tx_dma_cfg;
 static rs485_byte_rev_handle s_rs485_rev_byte_handler = NULL;
 
 //===========================================================//
@@ -24,9 +24,9 @@ void bambu_bus_send_data(const uint8_t *data, uint16_t length)
 {
     DMA_DeInit(DMA1_Channel4);
     // Configure DMA1 channel 4 for USART1 TX
-    s_rs485_dma_cfg.DMA_MemoryBaseAddr = (uint32_t)data;
-    s_rs485_dma_cfg.DMA_BufferSize = length;
-    DMA_Init(DMA1_Channel4, &s_rs485_dma_cfg);
+    s_rs485_tx_dma_cfg.DMA_MemoryBaseAddr = (uint32_t)data;
+    s_rs485_tx_dma_cfg.DMA_BufferSize = length;
+    DMA_Init(DMA1_Channel4, &s_rs485_tx_dma_cfg);
     DMA_Cmd(DMA1_Channel4, ENABLE);
     GPIOA->BSHR = GPIO_Pin_12;
     // Enable USART1 DMA send
@@ -75,17 +75,17 @@ void bambu_bus_init_usart(void)
     NVIC_Init(&NVIC_InitStructure);
 
     // Configure DMA1 channel 4 for USART1 TX
-    s_rs485_dma_cfg.DMA_PeripheralBaseAddr = (uint32_t)&USART1->DATAR;
-    s_rs485_dma_cfg.DMA_MemoryBaseAddr = (uint32_t)0;
-    s_rs485_dma_cfg.DMA_DIR = DMA_DIR_PeripheralDST;
-    s_rs485_dma_cfg.DMA_Mode = DMA_Mode_Normal;
-    s_rs485_dma_cfg.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
-    s_rs485_dma_cfg.DMA_MemoryInc = DMA_MemoryInc_Enable;
-    s_rs485_dma_cfg.DMA_Priority = DMA_Priority_VeryHigh;
-    s_rs485_dma_cfg.DMA_M2M = DMA_M2M_Disable;
-    s_rs485_dma_cfg.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
-    s_rs485_dma_cfg.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
-    s_rs485_dma_cfg.DMA_BufferSize = 0;
+    s_rs485_tx_dma_cfg.DMA_PeripheralBaseAddr = (uint32_t)&USART1->DATAR;
+    s_rs485_tx_dma_cfg.DMA_MemoryBaseAddr = (uint32_t)0;
+    s_rs485_tx_dma_cfg.DMA_DIR = DMA_DIR_PeripheralDST;
+    s_rs485_tx_dma_cfg.DMA_Mode = DMA_Mode_Normal;
+    s_rs485_tx_dma_cfg.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+    s_rs485_tx_dma_cfg.DMA_MemoryInc = DMA_MemoryInc_Enable;
+    s_rs485_tx_dma_cfg.DMA_Priority = DMA_Priority_VeryHigh;
+    s_rs485_tx_dma_cfg.DMA_M2M = DMA_M2M_Disable;
+    s_rs485_tx_dma_cfg.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
+    s_rs485_tx_dma_cfg.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Byte;
+    s_rs485_tx_dma_cfg.DMA_BufferSize = 0;
 
     USART_Cmd(USART1, ENABLE);
 }
