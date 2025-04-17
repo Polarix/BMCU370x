@@ -60,11 +60,12 @@ uint8_t T_to_tangle(uint32_t time)
 
 void loop()
 {
+    bambu_bus_receive_handler();
     bambu_bus_package_type_t stu = bambu_bus_ticks_handler();
     // int stu =-1;
     static int error = 0;
     bool motion_can_run = false;
-    bambu_bus_device_type_t device_type = bambu_bus_get_device_type();
+    
     if (stu != BambuBus_package_NONE) // have data/offline
     {
         motion_can_run = true;
@@ -79,6 +80,8 @@ void loop()
             error = 0;
             if (stu == BambuBus_package_heartbeat)
             {
+                bambu_bus_device_type_t device_type = bambu_bus_get_device_type();
+
                 if(device_type==BambuBus_AMS_lite)
                     SYS_RGB.set_RGB(0x00, 0x00, 0x10, 0);
                 else if(device_type==BambuBus_AMS)
