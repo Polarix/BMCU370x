@@ -1,11 +1,20 @@
+//===========================================================//
+//= Include files.                                          =//
+//===========================================================//
 #include <rs485_bsp.h>
 #include <ch32v20x_usart.h>
 #include <ch32v20x_dma.h>
 #include <ch32v20x_gpio.h>
 
+//===========================================================//
+//= Static function declare.                                =//
+//===========================================================//
 static DMA_InitTypeDef s_rs485_tx_dma_cfg;
 static rs485_byte_rev_handle s_rs485_rev_byte_handler = NULL;
 
+//===========================================================//
+//= Function definition.                                    =//
+//===========================================================//
 void bambu_bus_send_data(const uint8_t *data, uint16_t length)
 {
     DMA_DeInit(DMA1_Channel4);

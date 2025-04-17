@@ -1,3 +1,7 @@
+//===========================================================//
+//= Include files.                                          =//
+//===========================================================//
+#include <bambu_bus_queue.h>
 #include "BambuBus.h"
 #include <rs485_bsp.h>
 #include "CRC16.h"
@@ -291,8 +295,10 @@ void bambu_bus_init(void)
             j.meters = 0;
         }
     }
-    rs_485_bsp_register_byte_rev_callback(bambu_bus_byte_receive_handler);
-    bambu_bus_init_usart();
+    
+    // rs_485_bsp_register_byte_rev_callback(bambu_bus_byte_receive_handler);
+    // bambu_bus_init_usart();
+    bambu_bus_queue_init();
 }
 
 bool package_check_crc16(uint8_t *data, int data_length)
@@ -1123,4 +1129,29 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
 
     // NFC_detect_run();
     return stu;
+}
+
+#define PARSE_BYTE_NUM_PER_TICK     (256)
+
+void bambu_bus_receive_handler(void)
+{
+    static uint8_t s_receive_buf[PARSE_BYTE_NUM_PER_TICK] = {0x00};
+    static uint16_t s_received_bytes_num = 0;
+    static uint64_t s_last_time_stamp = 0;
+    static uint64_t s_now_time_stamp = 0;
+    
+    s_now_time_stamp = get_monotonic_timestamp64_ms();
+    uint64_t time_escape = get_timestamp_interval64(s_last_time_stamp, s_now_time_stamp);
+
+    /* 每隔5ms处理一次，避免频繁关中断。 */
+    if(time_escape > 5)
+    {
+        /* 每次最多只读取和解析(PARSE_BYTE_NUM_PER_TICK)字节数据。 */
+        s_received_bytes_num = bambu_bus_queue_read(s_receive_buf, PARSE_BYTE_NUM_PER_TICK);
+        for(uint16_t byte_idx=0; byte_idx<s_received_bytes_num; ++byte_idx)
+        {
+            bambu_bus_byte_receive_handler(s_receive_buf[byte_idx]);
+        }
+        s_last_time_stamp = s_now_time_stamp;
+    }
 }

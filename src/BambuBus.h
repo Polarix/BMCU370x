@@ -52,6 +52,7 @@ extern "C"
 
     void bambu_bus_init(void);
     bambu_bus_package_type_t bambu_bus_ticks_handler(void);
+    void bambu_bus_receive_handler(void);
     bool bambu_bus_load_config(void);
     void bambu_bus_save_config_later(void);
     void bambu_bus_save_config_now(void);
