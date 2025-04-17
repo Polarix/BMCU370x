@@ -39,7 +39,7 @@ static void bambu_bus_queue_on_byte_received(uint8_t byte)
 
 bool bambu_bus_read_byte(uint8_t* byte)
 {
-    return dequeue(&s_bambu_bus_queue, &byte);
+    return dequeue(&s_bambu_bus_queue, byte);
 }
 
 uint32_t bambu_bus_queue_read(uint8_t* buffer, uint32_t size)
