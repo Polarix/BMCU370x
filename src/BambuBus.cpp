@@ -10,6 +10,8 @@
 #define FILAMENT_CONFIG_SAVE_ADDR   ((uint32_t)0x0800F000)
 #define BAMBU_BUS_REV_BUF_LEN       (1000)
 
+static void bambu_bus_receive_handler(void);
+
 static uint32_t s_bambu_bus_receive_package_len = 0;
 static uint8_t s_receive_dump[BAMBU_BUS_REV_BUF_LEN];
 static uint8_t s_bambu_bus_rev_buf[BAMBU_BUS_REV_BUF_LEN];
@@ -1056,11 +1058,10 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
 
     uint64_t timex = get_monotonic_timestamp64_ms();
 
-    /*for (auto i : data_save.filament)
-    {
-        i->motion_set = idle;
-    }*/
+    /* 检查接收缓冲区并解析接收内容 */
+    bambu_bus_receive_handler();
 
+    /* 如果存在有效数据包，进行格式解析和内容分析。 */
     if (s_bambu_bus_receive_package_len)
     {
         int data_length = s_bambu_bus_receive_package_len;
@@ -1133,7 +1134,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
 
 #define PARSE_BYTE_NUM_PER_TICK     (256)
 
-void bambu_bus_receive_handler(void)
+static void bambu_bus_receive_handler(void)
 {
     static uint8_t s_receive_buf[PARSE_BYTE_NUM_PER_TICK] = {0x00};
     static uint16_t s_received_bytes_num = 0;

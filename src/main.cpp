@@ -60,7 +60,6 @@ uint8_t T_to_tangle(uint32_t time)
 
 void loop()
 {
-    bambu_bus_receive_handler();
     bambu_bus_package_type_t stu = bambu_bus_ticks_handler();
     // int stu =-1;
     static int error = 0;
