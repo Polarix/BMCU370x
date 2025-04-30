@@ -12,6 +12,8 @@
 
 static void bambu_bus_receive_handler(void);
 
+static bool s_bambu_bus_config_updated = false;
+
 static uint32_t s_bambu_bus_receive_package_len = 0;
 static uint8_t s_receive_dump[BAMBU_BUS_REV_BUF_LEN];
 static uint8_t s_bambu_bus_rev_buf[BAMBU_BUS_REV_BUF_LEN];
@@ -19,7 +21,7 @@ static CRC8 s_crc8_rx_check;
 static CRC16 s_crc16_check;
 static CRC8 s_crc8_tx_check;
 
-bambu_bus_device_type_t s_bambu_bus_device_type = BambuBus_none;
+static bambu_bus_device_type_t s_bambu_bus_device_type = BambuBus_none;
 
 typedef struct _filament_info_
 {
@@ -60,7 +62,6 @@ bool bambu_bus_load_config(void)
     return false;
 }
 
-bool s_bambu_bus_config_updated = false;
 void bambu_bus_save_config_later(void)
 {
     s_bambu_bus_config_updated = true;
@@ -69,6 +70,62 @@ void bambu_bus_save_config_later(void)
 void bambu_bus_save_config_now(void)
 {
     Flash_saves(&data_save, sizeof(data_save), FILAMENT_CONFIG_SAVE_ADDR);
+}
+
+/* 初始化耗材信息，此函数用于首次启动时，没有有效的耗材信息，设定初始默认值用。 */
+static void bambu_bus_init_config(void)
+{
+    data_save.filament[0][0].color_R = 0xFF;
+    data_save.filament[0][0].color_G = 0x00;
+    data_save.filament[0][0].color_B = 0x00;
+    data_save.filament[0][1].color_R = 0x00;
+    data_save.filament[0][1].color_G = 0xFF;
+    data_save.filament[0][1].color_B = 0x00;
+    data_save.filament[0][2].color_R = 0x00;
+    data_save.filament[0][2].color_G = 0x00;
+    data_save.filament[0][2].color_B = 0xFF;
+    data_save.filament[0][3].color_R = 0x88;
+    data_save.filament[0][3].color_G = 0x88;
+    data_save.filament[0][3].color_B = 0x88;
+
+    data_save.filament[1][0].color_R = 0xC0;
+    data_save.filament[1][0].color_G = 0x20;
+    data_save.filament[1][0].color_B = 0x20;
+    data_save.filament[1][1].color_R = 0x20;
+    data_save.filament[1][1].color_G = 0xC0;
+    data_save.filament[1][1].color_B = 0x20;
+    data_save.filament[1][2].color_R = 0x20;
+    data_save.filament[1][2].color_G = 0x20;
+    data_save.filament[1][2].color_B = 0xC0;
+    data_save.filament[1][3].color_R = 0x60;
+    data_save.filament[1][3].color_G = 0x60;
+    data_save.filament[1][3].color_B = 0x60;
+
+    data_save.filament[2][0].color_R = 0x80;
+    data_save.filament[2][0].color_G = 0x40;
+    data_save.filament[2][0].color_B = 0x40;
+    data_save.filament[2][1].color_R = 0x40;
+    data_save.filament[2][1].color_G = 0x80;
+    data_save.filament[2][1].color_B = 0x40;
+    data_save.filament[2][2].color_R = 0x40;
+    data_save.filament[2][2].color_G = 0x40;
+    data_save.filament[2][2].color_B = 0x80;
+    data_save.filament[2][3].color_R = 0x40;
+    data_save.filament[2][3].color_G = 0x40;
+    data_save.filament[2][3].color_B = 0x40;
+
+    data_save.filament[3][0].color_R = 0x40;
+    data_save.filament[3][0].color_G = 0x20;
+    data_save.filament[3][0].color_B = 0x20;
+    data_save.filament[3][1].color_R = 0x20;
+    data_save.filament[3][1].color_G = 0x40;
+    data_save.filament[3][1].color_B = 0x20;
+    data_save.filament[3][2].color_R = 0x20;
+    data_save.filament[3][2].color_G = 0x20;
+    data_save.filament[3][2].color_B = 0x40;
+    data_save.filament[3][3].color_R = 0x20;
+    data_save.filament[3][3].color_G = 0x20;
+    data_save.filament[3][3].color_B = 0x20;
 }
 
 int bambu_bus_get_filament_num(void)
@@ -231,57 +288,7 @@ void bambu_bus_init(void)
 
     if (!_init_ready)
     {
-        data_save.filament[0][0].color_R = 0xFF;
-        data_save.filament[0][0].color_G = 0x00;
-        data_save.filament[0][0].color_B = 0x00;
-        data_save.filament[0][1].color_R = 0x00;
-        data_save.filament[0][1].color_G = 0xFF;
-        data_save.filament[0][1].color_B = 0x00;
-        data_save.filament[0][2].color_R = 0x00;
-        data_save.filament[0][2].color_G = 0x00;
-        data_save.filament[0][2].color_B = 0xFF;
-        data_save.filament[0][3].color_R = 0x88;
-        data_save.filament[0][3].color_G = 0x88;
-        data_save.filament[0][3].color_B = 0x88;
-
-        data_save.filament[1][0].color_R = 0xC0;
-        data_save.filament[1][0].color_G = 0x20;
-        data_save.filament[1][0].color_B = 0x20;
-        data_save.filament[1][1].color_R = 0x20;
-        data_save.filament[1][1].color_G = 0xC0;
-        data_save.filament[1][1].color_B = 0x20;
-        data_save.filament[1][2].color_R = 0x20;
-        data_save.filament[1][2].color_G = 0x20;
-        data_save.filament[1][2].color_B = 0xC0;
-        data_save.filament[1][3].color_R = 0x60;
-        data_save.filament[1][3].color_G = 0x60;
-        data_save.filament[1][3].color_B = 0x60;
-
-        data_save.filament[2][0].color_R = 0x80;
-        data_save.filament[2][0].color_G = 0x40;
-        data_save.filament[2][0].color_B = 0x40;
-        data_save.filament[2][1].color_R = 0x40;
-        data_save.filament[2][1].color_G = 0x80;
-        data_save.filament[2][1].color_B = 0x40;
-        data_save.filament[2][2].color_R = 0x40;
-        data_save.filament[2][2].color_G = 0x40;
-        data_save.filament[2][2].color_B = 0x80;
-        data_save.filament[2][3].color_R = 0x40;
-        data_save.filament[2][3].color_G = 0x40;
-        data_save.filament[2][3].color_B = 0x40;
-
-        data_save.filament[3][0].color_R = 0x40;
-        data_save.filament[3][0].color_G = 0x20;
-        data_save.filament[3][0].color_B = 0x20;
-        data_save.filament[3][1].color_R = 0x20;
-        data_save.filament[3][1].color_G = 0x40;
-        data_save.filament[3][1].color_B = 0x20;
-        data_save.filament[3][2].color_R = 0x20;
-        data_save.filament[3][2].color_G = 0x20;
-        data_save.filament[3][2].color_B = 0x40;
-        data_save.filament[3][3].color_R = 0x20;
-        data_save.filament[3][3].color_G = 0x20;
-        data_save.filament[3][3].color_B = 0x20;
+        bambu_bus_init_config();
     }
     for (auto &i : data_save.filament)
     {
@@ -303,7 +310,7 @@ void bambu_bus_init(void)
     bambu_bus_queue_init();
 }
 
-bool package_check_crc16(uint8_t *data, int data_length)
+static bool package_check_crc16(uint8_t *data, int data_length)
 {
     s_crc16_check.restart();
     data_length -= 2;
@@ -317,7 +324,6 @@ bool package_check_crc16(uint8_t *data, int data_length)
     return false;
 }
 
-bool need_debug = false;
 void package_send_with_crc(uint8_t *data, int data_length)
 {
     s_crc8_tx_check.restart();
@@ -348,14 +354,7 @@ void package_send_with_crc(uint8_t *data, int data_length)
     data[(data_length + 1)] = num >> 8;
     data_length += 2;
     bambu_bus_send_data(data, data_length);
-    if (need_debug)
-    {
-        RAW_LOG(data, data_length);
-        need_debug = false;
-    }
 }
-
-uint8_t packge_send_buf[1000];
 
 #pragma pack(push, 1) // 将结构体按1字节对齐
 struct long_packge_data
@@ -371,17 +370,20 @@ struct long_packge_data
 };
 #pragma pack(pop) // 恢复默认对齐
 
-void Bambubus_long_package_send(long_packge_data *data)
+static uint8_t s_resp_packge_buf[1000];
+
+/* 发送长包响应数据 */
+void bambu_bus_long_pack_resp(long_packge_data *data)
 {
-    packge_send_buf[0] = 0x3D;
-    packge_send_buf[1] = 0x00;
+    s_resp_packge_buf[0] = 0x3D;
+    s_resp_packge_buf[1] = 0x00;
     data->package_length = data->data_length + 15;
-    memcpy(packge_send_buf + 2, data, 11);
-    memcpy(packge_send_buf + 13, data->datas, data->data_length);
-    package_send_with_crc(packge_send_buf, data->data_length + 15);
+    memcpy(s_resp_packge_buf + 2, data, 11);
+    memcpy(s_resp_packge_buf + 13, data->datas, data->data_length);
+    package_send_with_crc(s_resp_packge_buf, data->data_length + 15);
 }
 
-void Bambubus_long_package_analysis(uint8_t *buf, int data_length, long_packge_data *data)
+static void Bambubus_long_package_analysis(uint8_t *buf, int data_length, long_packge_data *data)
 {
     memcpy(data, buf + 2, 11);
     data->datas = buf + 13;
@@ -926,7 +928,7 @@ void send_for_long_packge_MC_online(uint8_t *buf, int length)
     data.type = printer_data_long.type;
     data.source_address = printer_data_long.target_address;
     data.target_address = printer_data_long.source_address;
-    Bambubus_long_package_send(&data);
+    bambu_bus_long_pack_resp(&data);
 }
 uint8_t long_packge_filament[] =
     {
@@ -941,21 +943,26 @@ uint8_t long_packge_filament[] =
 void send_for_long_packge_filament(uint8_t *buf, int length)
 {
     long_packge_data data;
+    /* 先解析收到的数据作为发送响应数据的依据 */
     Bambubus_long_package_analysis(buf, length, &printer_data_long);
 
     uint8_t AMS_num = printer_data_long.datas[0];
     uint8_t filament_num = printer_data_long.datas[1];
+    /* 响应数据 */
     long_packge_filament[0] = AMS_num;
     long_packge_filament[1] = filament_num;
+    /* 耗材ID和名字 */
     memcpy(long_packge_filament + 19, data_save.filament[AMS_num][filament_num].ID, sizeof(data_save.filament[AMS_num][filament_num].ID));
     memcpy(long_packge_filament + 27, data_save.filament[AMS_num][filament_num].name, sizeof(data_save.filament[AMS_num][filament_num].name));
+    /* 耗材颜色 */
     long_packge_filament[59] = data_save.filament[AMS_num][filament_num].color_R;
     long_packge_filament[60] = data_save.filament[AMS_num][filament_num].color_G;
     long_packge_filament[61] = data_save.filament[AMS_num][filament_num].color_B;
     long_packge_filament[62] = data_save.filament[AMS_num][filament_num].color_A;
+    /* 打印温度 */
     memcpy(long_packge_filament + 79, &data_save.filament[AMS_num][filament_num].temperature_max, 2);
     memcpy(long_packge_filament + 81, &data_save.filament[AMS_num][filament_num].temperature_min, 2);
-
+    /* 组织数据包 */
     data.datas = long_packge_filament;
     data.data_length = sizeof(long_packge_filament);
 
@@ -963,7 +970,8 @@ void send_for_long_packge_filament(uint8_t *buf, int length)
     data.type = printer_data_long.type;
     data.source_address = printer_data_long.target_address;
     data.target_address = printer_data_long.source_address;
-    Bambubus_long_package_send(&data);
+    /* 计算CRC并发送响应 */
+    bambu_bus_long_pack_resp(&data);
 }
 uint8_t serial_number[] = {"STUDY0ONLY"};
 uint8_t long_packge_version_serial_number[] = {9, // length
@@ -1026,27 +1034,34 @@ void send_for_long_packge_version(uint8_t *buf, int length)
     data.type = printer_data_long.type;
     data.source_address = printer_data_long.target_address;
     data.target_address = printer_data_long.source_address;
-    Bambubus_long_package_send(&data);
+    bambu_bus_long_pack_resp(&data);
 }
 uint8_t s = 0x01;
 
-uint8_t Set_filament_res[] = {0x3D, 0xC0, 0x08, 0xB2, 0x08, 0x60, 0xB4, 0x04};
+/* 设定/更新耗材信息的响应 */
+static uint8_t s_set_filament_info_resp[] = {0x3D, 0xC0, 0x08, 0xB2, 0x08, 0x60, 0xB4, 0x04};
+/* 设定耗材信息，并发送反馈。 */
 void send_for_set_filament(uint8_t *buf, int length)
 {
     uint8_t read_num = buf[5];
     uint8_t AMS_num = read_num & 0xF0;
     read_num = read_num & 0x0F;
-    memcpy(data_save.filament[AMS_num][read_num].ID, buf + 7, sizeof(data_save.filament[AMS_num][read_num].ID));
-
+    /* 每次只设定一个通道的耗材信息 */
+    /* 颜色 */
     data_save.filament[AMS_num][read_num].color_R = buf[15];
     data_save.filament[AMS_num][read_num].color_G = buf[16];
     data_save.filament[AMS_num][read_num].color_B = buf[17];
     data_save.filament[AMS_num][read_num].color_A = buf[18];
-
+    /* 温度范围 */
     memcpy(&data_save.filament[AMS_num][read_num].temperature_min, buf + 19, 2);
     memcpy(&data_save.filament[AMS_num][read_num].temperature_max, buf + 21, 2);
+    /* ID */
+    memcpy(data_save.filament[AMS_num][read_num].ID, buf + 7, sizeof(data_save.filament[AMS_num][read_num].ID));
+    /* 名字 */
     memcpy(data_save.filament[AMS_num][read_num].name, buf + 23, sizeof(data_save.filament[AMS_num][read_num].name));
-    package_send_with_crc(Set_filament_res, sizeof(Set_filament_res));
+    /* 发送反馈数据 */
+    package_send_with_crc(s_set_filament_info_resp, sizeof(s_set_filament_info_resp));
+    /* 耗材信息更新，需要保存。 */
     bambu_bus_save_config_later();
 }
 
@@ -1066,7 +1081,6 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
     {
         int data_length = s_bambu_bus_receive_package_len;
         s_bambu_bus_receive_package_len = 0;
-        need_debug = false;
         delay(1);
         stu = get_packge_type(s_receive_dump, data_length); // have_data
         switch (stu)
@@ -1134,6 +1148,7 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
 
 #define PARSE_BYTE_NUM_PER_TICK     (256)
 
+/* 从接收缓冲区中读取数据并判断有效性。 */
 static void bambu_bus_receive_handler(void)
 {
     static uint8_t s_receive_buf[PARSE_BYTE_NUM_PER_TICK] = {0x00};
@@ -1141,14 +1156,18 @@ static void bambu_bus_receive_handler(void)
     static uint64_t s_last_time_stamp = 0;
     static uint64_t s_now_time_stamp = 0;
     
+    /* 读取当前时间戳 */
     s_now_time_stamp = get_monotonic_timestamp64_ms();
+    /* 计算和上一次读取的时间间隔 */
     uint64_t time_escape = get_timestamp_interval64(s_last_time_stamp, s_now_time_stamp);
 
     /* 每隔5ms处理一次，避免频繁关中断。 */
+    /* 为了保证有效和互斥，数据读取过程中会关闭所有中断，频繁关闭中断可能导致数据丢失。 */
     if(time_escape > 5)
     {
         /* 每次最多只读取和解析(PARSE_BYTE_NUM_PER_TICK)字节数据。 */
         s_received_bytes_num = bambu_bus_queue_read(s_receive_buf, PARSE_BYTE_NUM_PER_TICK);
+        /* 依次将读取的字节，送入接收处理和解析函数，如果有有效的包，数据将被拆解和转储到包缓冲区。 */
         for(uint16_t byte_idx=0; byte_idx<s_received_bytes_num; ++byte_idx)
         {
             bambu_bus_byte_receive_handler(s_receive_buf[byte_idx]);
