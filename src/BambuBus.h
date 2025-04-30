@@ -52,9 +52,6 @@ extern "C"
 
     void bambu_bus_init(void);
     bambu_bus_package_type_t bambu_bus_ticks_handler(void);
-    bool bambu_bus_load_config(void);
-    void bambu_bus_save_config_later(void);
-    void bambu_bus_save_config_now(void);
     int bambu_bus_get_filament_num(void);
     bambu_bus_device_type_t bambu_bus_get_device_type();
     void bambu_bus_add_filament_meters(int num, float meters);

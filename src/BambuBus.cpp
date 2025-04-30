@@ -11,6 +11,7 @@
 #define BAMBU_BUS_REV_BUF_LEN       (1000)
 
 static void bambu_bus_receive_handler(void);
+static inline void bambu_bus_filament_config_init(void);
 
 static bool s_bambu_bus_config_updated = false;
 
@@ -51,30 +52,38 @@ struct alignas(4) flash_save_struct
     uint32_t check = 0x40614061;
 } data_save;
 
-bool bambu_bus_load_config(void)
-{
-    flash_save_struct *ptr = (flash_save_struct *)(FILAMENT_CONFIG_SAVE_ADDR);
-    if ((ptr->check == 0x40614061) && (ptr->version == BAMBU_BUS_VER))
-    {
-        memcpy(&data_save, ptr, sizeof(data_save));
-        return true;
-    }
-    return false;
-}
-
-void bambu_bus_save_config_later(void)
+static void bambu_bus_save_config_later(void)
 {
     s_bambu_bus_config_updated = true;
 }
 
-void bambu_bus_save_config_now(void)
+static void bambu_bus_save_config_now(void)
 {
     Flash_saves(&data_save, sizeof(data_save), FILAMENT_CONFIG_SAVE_ADDR);
 }
 
-/* 初始化耗材信息，此函数用于首次启动时，没有有效的耗材信息，设定初始默认值用。 */
-static void bambu_bus_init_config(void)
+static void bambu_bus_load_config(void)
 {
+    flash_save_struct *ptr = (flash_save_struct *)(FILAMENT_CONFIG_SAVE_ADDR);
+    if ((ptr->check == 0x40614061) && (ptr->version == BAMBU_BUS_VER))
+    {
+        /* 标记存在，是上次保存的数据。 */
+        memcpy(&data_save, ptr, sizeof(data_save));
+    }
+    else
+    {
+        /* 标记不存在，程序首次烧录或数据已经被破坏。 */void
+        /* 设定默认数据 */
+        bambu_bus_filament_config_init();
+    }
+}
+
+/* 初始化耗材信息，此函数用于首次启动时，没有有效的耗材信息，设定初始默认值用。 */
+static inline void bambu_bus_filament_config_init(void)
+{
+    data_save.version = BAMBU_BUS_VER;
+    data_save.check = 0x40614061;
+
     data_save.filament[0][0].color_R = 0xFF;
     data_save.filament[0][0].color_G = 0x00;
     data_save.filament[0][0].color_B = 0x00;
@@ -128,6 +137,7 @@ static void bambu_bus_init_config(void)
     data_save.filament[3][3].color_B = 0x20;
 }
 
+/* 获取正在使用中的耗材通道 */
 int bambu_bus_get_filament_num(void)
 {
     return data_save.BambuBus_now_filament_num;
@@ -281,32 +291,23 @@ static void inline bambu_bus_byte_receive_handler(uint8_t rev_byte)
 
 void bambu_bus_init(void)
 {
-    bool _init_ready = bambu_bus_load_config();
+    /* 初始化CRC计算器 */
     s_crc8_tx_check.reset(0x39, 0x66, 0x00, false, false);
     s_crc8_rx_check.reset(0x39, 0x66, 0x00, false, false);
     s_crc16_check.reset(0x1021, 0x913D, 0, false, false);
-
-    if (!_init_ready)
-    {
-        bambu_bus_init_config();
-    }
+    /* 读取耗材配置 */
+    bambu_bus_load_config();
+    /* 初始化各耗材通道状态 */
     for (auto &i : data_save.filament)
     {
         for (auto &j : i)
         {
-#ifdef _Bambubus_DEBUG_mode_
-            j.statu = online;
-#else
             j.statu = offline;
-#endif // DEBUG
-
             j.motion_set = idle;
             j.meters = 0;
         }
     }
-    
-    // rs_485_bsp_register_byte_rev_callback(bambu_bus_byte_receive_handler);
-    // bambu_bus_init_usart();
+    /* 初始化数据收发 */
     bambu_bus_queue_init();
 }
 
