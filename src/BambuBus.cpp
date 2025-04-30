@@ -1087,8 +1087,11 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
         switch (stu)
         {
         case BambuBus_package_heartbeat:
+        {
+            /* 更新心跳检查时间 */
             time_set = timex + 1000;
             break;
+        }
         case BambuBus_package_filament_motion_short:
             send_for_motion_short(s_receive_dump, data_length);
             break;
@@ -1123,10 +1126,13 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
             break;
         }
     }
+
+    /* 心跳检查判断，如果1s以上未收到心跳检查包，则代表设备已经离线。 */
     if (timex > time_set)
     {
         stu = BambuBus_package_ERROR; // offline
     }
+    /* 运动控制检查 */
     if (timex > time_motion)
     {
         // set_filament_motion(bambu_bus_get_filament_num(),idle);
@@ -1135,9 +1141,11 @@ bambu_bus_package_type_t bambu_bus_ticks_handler(void)
             i->motion_set=idle;
         }*/
     }
+    /* 有需要保存的耗材信息数据则保存到Flash */
     if (s_bambu_bus_config_updated)
     {
         bambu_bus_save_config_now();
+        /* 更新心跳时间检查 */
         time_set = get_monotonic_timestamp64_ms() + 1000;
         s_bambu_bus_config_updated = false;
     }
