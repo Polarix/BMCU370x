@@ -6,7 +6,23 @@
 //===========================================================//
 //= Macro definition.                                       =//
 //===========================================================//
-#define Motion_control_save_flash_addr ((uint32_t)0x0800E000)
+#define MC_CONFIG_SAVE_ADDR ((uint32_t)0x0800E000)
+#define PWM_lim 900
+
+//===========================================================//
+//= Data type declare.                                      =//
+//===========================================================//
+enum filament_motion_enum
+{
+    filament_motion_send = 1,
+    filament_motion_send_pressure,
+    filament_motion_slow_send,
+    filament_motion_pull = -1,
+    filament_motion_stop = -2,
+    filament_motion_no_resistance = 0,
+    filament_motion_less_pressure = 100,
+    filament_motion_over_pressure = 101,
+};
 
 //===========================================================//
 //= Static function declare.                                =//
@@ -15,40 +31,8 @@ static void mc_fliament_online_state_update(void);
 static void mc_set_pwm_value(uint8_t CHx,int PWM);
 
 //===========================================================//
-//= Static variable declaration.                            =//
+//= Class declare.                                          =//
 //===========================================================//
-AS5600_soft_IIC_many MC_AS5600;
-uint32_t AS5600_SCL[] = {PA6, PA4, PA2, PA0};
-uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
-
-uint8_t PULL_key_stu[4] = {0, 0, 0, 0};
-uint8_t PULL_key_change[4] = {0, 0, 0, 0};
-#define PWM_lim 900
-
-struct alignas(4) Motion_control_save_struct
-{
-    int Motion_control_dir[4];
-    int check = 0x40614061;
-} Motion_control_data_save;
-
-//===========================================================//
-//= Function definition.                                    =//
-//===========================================================//
-static bool Motion_control_read(void)
-{
-    Motion_control_save_struct *ptr = (Motion_control_save_struct *)(Motion_control_save_flash_addr);
-    if (ptr->check == 0x40614061)
-    {
-        memcpy(&Motion_control_data_save, ptr, sizeof(Motion_control_save_struct));
-        return true;
-    }
-    return false;
-}
-void Motion_control_save()
-{
-    Flash_saves(&Motion_control_data_save, sizeof(Motion_control_save_struct), Motion_control_save_flash_addr);
-}
-
 /* PID控制器 */
 class CPID
 {
@@ -89,18 +73,6 @@ public:
         I_save = 0;
         E_last = 0;
     }
-};
-
-enum filament_motion_enum
-{
-    filament_motion_send = 1,
-    filament_motion_send_pressure,
-    filament_motion_slow_send,
-    filament_motion_pull = -1,
-    filament_motion_stop = -2,
-    filament_motion_no_resistance = 0,
-    filament_motion_less_pressure = 100,
-    filament_motion_over_pressure = 101,
 };
 
 /* 电机控制器 */
@@ -225,7 +197,43 @@ public:
         time_last = time_now;
     }
 };
-CMotorControl MOTOR_CONTROL[4] = {CMotorControl(0), CMotorControl(1), CMotorControl(2), CMotorControl(3)};
+
+//===========================================================//
+//= Static variable declaration.                            =//
+//===========================================================//
+static AS5600_soft_IIC_many s_as6500_driver;
+static CMotorControl s_motor_controller[4] = {CMotorControl(0), CMotorControl(1), CMotorControl(2), CMotorControl(3)};
+
+uint32_t AS5600_SCL[] = {PA6, PA4, PA2, PA0};
+uint32_t AS5600_SDA[] = {PA7, PA5, PA3, PA1};
+
+uint8_t PULL_key_stu[4] = {0, 0, 0, 0};
+uint8_t PULL_key_change[4] = {0, 0, 0, 0};
+
+struct alignas(4) Motion_control_save_struct
+{
+    int Motion_control_dir[4];
+    int check = 0x40614061;
+} Motion_control_data_save;
+
+//===========================================================//
+//= Function definition.                                    =//
+//===========================================================//
+static bool Motion_control_read(void)
+{
+    Motion_control_save_struct *ptr = (Motion_control_save_struct *)(MC_CONFIG_SAVE_ADDR);
+    if (ptr->check == 0x40614061)
+    {
+        memcpy(&Motion_control_data_save, ptr, sizeof(Motion_control_save_struct));
+        return true;
+    }
+    return false;
+}
+void Motion_control_save()
+{
+    Flash_saves(&Motion_control_data_save, sizeof(Motion_control_save_struct), MC_CONFIG_SAVE_ADDR);
+}
+
 void MC_PULL_key_read(void)
 {
     /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
@@ -350,10 +358,10 @@ void AS5600_distance_updata()
         time_now = get_monotonic_timestamp64_ms();
     } while (time_now <= time_last); // T!=0
     T = (float)(time_now - time_last);
-    MC_AS5600.updata_angle();
+    s_as6500_driver.updata_angle();
     for (int i = 0; i < 4; i++)
     {
-        if ((MC_AS5600.online[i] == false))
+        if ((s_as6500_driver.online[i] == false))
         {
             as5600_distance_save[i] = 0;
             speed_as5600[i] = 0;
@@ -362,7 +370,7 @@ void AS5600_distance_updata()
 
         int32_t cir_E = 0;
         int32_t last_distance = as5600_distance_save[i];
-        int32_t now_distance = MC_AS5600.raw_angle[i];
+        int32_t now_distance = s_as6500_driver.raw_angle[i];
         float distance_E;
         if ((now_distance > 3072) && (last_distance <= 1024))
         {
@@ -404,7 +412,7 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
         if (filament_now_position[i] == filament_pulling_back)
         {
             RGB_set(i, 0xFF, 0x00, 0xFF); // 设置RGB灯为紫色
-            MOTOR_CONTROL[i].set_motion(filament_motion_pull, 100); // 驱动电机退料
+            s_motor_controller[i].set_motion(filament_motion_pull, 100); // 驱动电机退料
             uint64_t current_time = get_monotonic_timestamp64_ms();
             if (motor_reverse_start_time[i] == 0) // 如果反转开始时间未记录，则记录当前时间
             {
@@ -413,8 +421,8 @@ bool Prepare_For_filament_Pull_Back(uint64_t OUT_TIME)
             uint64_t time = current_time - motor_reverse_start_time[i];
 
             if (time > OUT_TIME) { // 到达停止时间
-                MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100); // 停止电机
-                MOTOR_CONTROL[i].set_motion(filament_motion_no_resistance, 100); // 设置无阻力模式
+                s_motor_controller[i].set_motion(filament_motion_stop, 100); // 停止电机
+                s_motor_controller[i].set_motion(filament_motion_no_resistance, 100); // 设置无阻力模式
                 filament_now_position[i] = filament_idle; // 设置当前位置为空闲
                 bambu_bus_set_filament_motion_state(i, idle); // 设置当前耗材状态为空闲
                 motor_reverse_start_time[i] = 0; // 重置反转开始时间
@@ -441,13 +449,13 @@ void motor_motion_switch()
             if (device_type == BambuBus_AMS_lite)
             {
                 if (PULL_key_stu[num] == 0)
-                    MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+                    s_motor_controller[num].set_motion(filament_motion_send, 100);
                 else
-                    MOTOR_CONTROL[num].set_motion(filament_motion_send_pressure, 100);
+                    s_motor_controller[num].set_motion(filament_motion_send_pressure, 100);
             }
             else if (device_type == BambuBus_AMS)
             {
-                MOTOR_CONTROL[num].set_motion(filament_motion_send, 100);
+                s_motor_controller[num].set_motion(filament_motion_send, 100);
             }
             break;
         case need_pull_back:
@@ -468,18 +476,18 @@ void motor_motion_switch()
             else if (filament_now_position[num] == filament_using) // 已经进入使用状态,即打印机已经检测到耗材丝。
             {
                 if (PULL_key_stu[num] == 0) // 如果触发缓冲，则缓冲状态。
-                    MOTOR_CONTROL[num].set_motion(filament_motion_less_pressure, 20); // 缓冲状态。
+                    s_motor_controller[num].set_motion(filament_motion_less_pressure, 20); // 缓冲状态。
                 else if (time_now < time_end) // 如果是刚进料且在前三秒，使用慢速送料，避免没被工具头咬合。
-                    MOTOR_CONTROL[num].set_motion(filament_motion_slow_send, 20); // 缓慢
+                    s_motor_controller[num].set_motion(filament_motion_slow_send, 20); // 缓慢
                 else // 已经超过3秒，如果未触发缓冲则紧急刹车。
-                    MOTOR_CONTROL[num].set_motion(filament_motion_stop, 20);
+                    s_motor_controller[num].set_motion(filament_motion_stop, 20);
             }
             RGB_set(num, 0xFF, 0xFF, 0xFF); // 设置RGB灯为白色，进入使用状态。
             break;
         }
         case idle:
             filament_now_position[num] = filament_idle;
-            MOTOR_CONTROL[num].set_motion(filament_motion_no_resistance, 100);
+            s_motor_controller[num].set_motion(filament_motion_no_resistance, 100);
             RGB_set(num, 0x00, 0x00, 0x37);
             break;
         }
@@ -506,14 +514,14 @@ void motor_motion_run(int error)
         }
     } else {
         for (int i = 0; i < 4; i++)
-            MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
+            s_motor_controller[i].set_motion(filament_motion_stop, 100);
     }
 
     for (int i = 0; i < 4; i++)
     {
         if (!bambu_bus_filament_is_online(i))
-            MOTOR_CONTROL[i].set_motion(filament_motion_stop, 100);
-        MOTOR_CONTROL[i].run(speed_as5600[i]);
+            s_motor_controller[i].set_motion(filament_motion_stop, 100);
+        s_motor_controller[i].run(speed_as5600[i]);
     }
 }
 
@@ -565,7 +573,7 @@ void mc_ticks_handler(int error)
 
     for (int i = 0; i < 4; i++)
     {
-        if ((MC_AS5600.online[i] == false) || (MC_AS5600.magnet_stu[i] == -1)) // AS5600 error
+        if ((s_as6500_driver.online[i] == false) || (s_as6500_driver.magnet_stu[i] == -1)) // AS5600 error
         {
             RGB_set(i, 0xFF, 0x00, 0x00);
         }
@@ -656,19 +664,19 @@ void MOTOR_get_dir()
             Motion_control_data_save.Motion_control_dir[index] = 0;
         }
     }
-    MC_AS5600.updata_angle(); // read as5600 once
+    s_as6500_driver.updata_angle(); // read as5600 once
 
     int16_t last_angle[4];
     for (int index = 0; index < 4; index++)
     {
-        last_angle[index] = MC_AS5600.raw_angle[index];                  // init angle
+        last_angle[index] = s_as6500_driver.raw_angle[index];                  // init angle
         dir[index] = Motion_control_data_save.Motion_control_dir[index]; // init dir data
     }
     bool need_test = false; // 是否需要检测
     bool need_save = false; // 是否需要更新状态
     for (int index = 0; index < 4; index++)
     {
-        if ((MC_AS5600.online[index] == true)) // 有5600，说明通道在线
+        if ((s_as6500_driver.online[index] == true)) // 有5600，说明通道在线
         {
             if (Motion_control_data_save.Motion_control_dir[index] == 0) // 之前测试结果为0，需要测试
             {
@@ -689,7 +697,7 @@ void MOTOR_get_dir()
         done = true;
         
         delay(10);//间隔10ms检测一次
-        MC_AS5600.updata_angle();//更新角度数据
+        s_as6500_driver.updata_angle();//更新角度数据
 
         if (i++ > 200)//超过2s无响应
         {
@@ -702,9 +710,9 @@ void MOTOR_get_dir()
         }
         for (int index = 0; index < 4; index++)//遍历
         {
-            if ((MC_AS5600.online[index] == true) && (Motion_control_data_save.Motion_control_dir[index] == 0)) // 对于新的通道
+            if ((s_as6500_driver.online[index] == true) && (Motion_control_data_save.Motion_control_dir[index] == 0)) // 对于新的通道
             {
-                int angle_dis = M5600_angle_dis(MC_AS5600.raw_angle[index], last_angle[index]);
+                int angle_dis = M5600_angle_dis(s_as6500_driver.raw_angle[index], last_angle[index]);
                 if (abs(angle_dis) > 163) // 移动超过1mm
                 {
                     mc_set_pwm_value(index, 0); // 停止
@@ -740,19 +748,19 @@ void MOTOR_init()
     /* 初始化AS5600磁编码器通信接口 */
     /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
     /* 原理图中通道编号1/2/3/4分别对应代码中的数组索引3/2/1/0 */
-    MC_AS5600.init(AS5600_SCL, AS5600_SDA, 4);
-    MC_AS5600.updata_angle();
+    s_as6500_driver.init(AS5600_SCL, AS5600_SDA, 4);
+    s_as6500_driver.updata_angle();
     for (int i = 0; i < 4; i++)
     {
-        as5600_distance_save[i] = MC_AS5600.raw_angle[i];
+        as5600_distance_save[i] = s_as6500_driver.raw_angle[i];
     }
 
     MOTOR_get_dir();
     for (int index = 0; index < 4; index++)
     {
         mc_set_pwm_value(index, 0);
-        MOTOR_CONTROL[index].set_pwm_zero(500);
-        MOTOR_CONTROL[index].dir = Motion_control_data_save.Motion_control_dir[index];
+        s_motor_controller[index].set_pwm_zero(500);
+        s_motor_controller[index].dir = Motion_control_data_save.Motion_control_dir[index];
     }
 }
 
