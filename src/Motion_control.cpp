@@ -2,12 +2,13 @@
 //= Include files.                                          =//
 //===========================================================//
 #include "Motion_control.h"
+#include <BambuBus.h>
+#include <pwm_bsp.h>
 
 //===========================================================//
 //= Macro definition.                                       =//
 //===========================================================//
 #define MC_CONFIG_SAVE_ADDR ((uint32_t)0x0800E000)
-#define PWM_lim 900
 
 //===========================================================//
 //= Data type declare.                                      =//
@@ -28,10 +29,8 @@ enum filament_motion_enum
 //= Static function declare.                                =//
 //===========================================================//
 static void mc_fliament_online_state_update(void);
-static void mc_set_pwm_value(uint8_t CHx,int PWM);
 static void mc_get_motor_dir(void);
 static void mc_motor_ctrl_init(void);
-static void mc_pwm_bsp_init(void);
 
 //===========================================================//
 //= Class declare.                                          =//
@@ -45,8 +44,8 @@ public:
     float D = 0;
     float I_save = 0;
     float E_last = 0;
-    float pid_MAX = PWM_lim;
-    float pid_MIN = -PWM_lim;
+    float pid_MAX = PWM_VAL_MAX;
+    float pid_MIN = -PWM_VAL_MAX;
     float pid_range = (pid_MAX - pid_MIN) / 2;
     void init(float P_set, float I_set)
     {
@@ -127,13 +126,13 @@ public:
         if (motion == filament_motion_no_resistance)
         {
             PID.clear();
-            mc_set_pwm_value(CHx, 0);
+            pwm_set_value(CHx, 0);
             return;
         }
         if (motion == filament_motion_stop) // just stop
         {
             PID.clear();
-            mc_set_pwm_value(CHx, 0);
+            pwm_set_value(CHx, 0);
             return;
         }
         if (motion == filament_motion_send) // send
@@ -181,22 +180,20 @@ public:
         float x = dir * PID.caculate(now_speed - speed_set, (float)(time_now - time_last) / 1000);
 
         if (x > 1)
+        {
             x += pwm_zero;
+        }
         else if (x < 1)
+        {
             x -= pwm_zero;
+        }
         else
+        {
             x = 0;
-
-        if (x > PWM_lim)
-        {
-            x = PWM_lim;
         }
-        if (x < -PWM_lim)
-        {
-            x = -PWM_lim;
-        }
-
-        mc_set_pwm_value(CHx, x);
+        /* 更新PWM发生器。 */
+        pwm_set_value(CHx, x);
+        /* 更新运行时计数。 */
         time_last = time_now;
     }
 };
@@ -299,6 +296,7 @@ void MC_ONLINE_key_init()
 {
     GPIO_InitTypeDef GPIO_InitStructure;
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE);
+    /* PD1默认用于外部晶振，需要Remap后才能使用 */
     GPIO_PinRemapConfig(GPIO_Remap_PD01, ENABLE);
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOC | RCC_APB2Periph_GPIOD, ENABLE);
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
@@ -308,43 +306,6 @@ void MC_ONLINE_key_init()
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;
     GPIO_Init(GPIOD, &GPIO_InitStructure);
     mc_fliament_online_state_update();
-}
-
-void mc_set_pwm_value(uint8_t CHx, int PWM)
-{
-    uint16_t set1 = 0, set2 = 0;
-    if (PWM > 0)
-    {
-        set1 = PWM;
-    }
-    else if (PWM < 0)
-    {
-        set2 = -PWM;
-    }
-    else // PWM==0
-    {
-        set1 = 1000;
-        set2 = 1000;
-    }
-    switch (CHx)
-    {
-    case 3:
-        TIM_SetCompare1(TIM2, set1);
-        TIM_SetCompare2(TIM2, set2);
-        break;
-    case 2:
-        TIM_SetCompare1(TIM3, set1);
-        TIM_SetCompare2(TIM3, set2);
-        break;
-    case 1:
-        TIM_SetCompare1(TIM4, set1);
-        TIM_SetCompare2(TIM4, set2);
-        break;
-    case 0:
-        TIM_SetCompare3(TIM4, set1);
-        TIM_SetCompare4(TIM4, set2);
-        break;
-    }
 }
 
 #define AS5600_PI 3.1415926535897932384626433832795
@@ -583,64 +544,6 @@ void mc_ticks_handler(int error)
     }
 }
 
-static void mc_pwm_bsp_init(void)
-{
-    GPIO_InitTypeDef GPIO_InitStructure;
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB, ENABLE);
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_3 | GPIO_Pin_4 | GPIO_Pin_5 |
-                                  GPIO_Pin_6 | GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_15;
-    GPIO_Init(GPIOA, &GPIO_InitStructure);
-
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO, ENABLE); // 开启复用时钟
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE); // 开启TIM2时钟
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE); // 开启TIM3时钟
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM4, ENABLE); // 开启TIM4时钟
-
-    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
-    TIM_OCInitTypeDef TIM_OCInitStructure;
-
-    // 定时器基础配置
-    TIM_TimeBaseStructure.TIM_Period = 999;  // 周期（x+1）
-    TIM_TimeBaseStructure.TIM_Prescaler = 1; // 预分频（x+1）
-    TIM_TimeBaseStructure.TIM_ClockDivision = 0;
-    TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM2, &TIM_TimeBaseStructure);
-    TIM_TimeBaseInit(TIM3, &TIM_TimeBaseStructure);
-    TIM_TimeBaseInit(TIM4, &TIM_TimeBaseStructure);
-
-    // PWM模式配置
-    TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
-    TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Enable;
-    TIM_OCInitStructure.TIM_Pulse = 0; // 占空比
-    TIM_OCInitStructure.TIM_OCPolarity = TIM_OCPolarity_High;
-    TIM_OC1Init(TIM2, &TIM_OCInitStructure); // PA15
-    TIM_OC2Init(TIM2, &TIM_OCInitStructure); // PB3
-    TIM_OC1Init(TIM3, &TIM_OCInitStructure); // PB4
-    TIM_OC2Init(TIM3, &TIM_OCInitStructure); // PB5
-    TIM_OC1Init(TIM4, &TIM_OCInitStructure); // PB6
-    TIM_OC2Init(TIM4, &TIM_OCInitStructure); // PB7
-    TIM_OC3Init(TIM4, &TIM_OCInitStructure); // PB8
-    TIM_OC4Init(TIM4, &TIM_OCInitStructure); // PB9
-
-    GPIO_PinRemapConfig(GPIO_FullRemap_TIM2, ENABLE);    // TIM2完全映射-CH1-PA15/CH2-PB3
-    GPIO_PinRemapConfig(GPIO_PartialRemap_TIM3, ENABLE); // TIM3部分映射-CH1-PB4/CH2-PB5
-    GPIO_PinRemapConfig(GPIO_Remap_TIM4, DISABLE);       // TIM4不映射-CH1-PB6/CH2-PB7/CH3-PB8/CH4-PB9
-
-    TIM_CtrlPWMOutputs(TIM2, ENABLE);
-    TIM_ARRPreloadConfig(TIM2, ENABLE);
-    TIM_Cmd(TIM2, ENABLE);
-    TIM_CtrlPWMOutputs(TIM3, ENABLE);
-    TIM_ARRPreloadConfig(TIM3, ENABLE);
-    TIM_Cmd(TIM3, ENABLE);
-    TIM_CtrlPWMOutputs(TIM4, ENABLE);
-    TIM_ARRPreloadConfig(TIM4, ENABLE);
-    TIM_Cmd(TIM4, ENABLE);
-}
-
 int M5600_angle_dis(int16_t angle1, int16_t angle2)
 {
 
@@ -663,6 +566,7 @@ static void mc_get_motor_dir(void)
     bool have_data = Motion_control_read();
     if (!have_data)
     {
+        /* 初次上电后初始化电机转向记录。 */
         for (int index = 0; index < 4; index++)
         {
             Motion_control_data_save.Motion_control_dir[index] = 0;
@@ -684,7 +588,7 @@ static void mc_get_motor_dir(void)
         {
             if (Motion_control_data_save.Motion_control_dir[index] == 0) // 之前测试结果为0，需要测试
             {
-                mc_set_pwm_value(index, 1000); // 打开电机
+                pwm_set_value(index, 1000); // 打开电机
                 need_save = true;                    // 有状态更新
             }
         }
@@ -706,7 +610,7 @@ static void mc_get_motor_dir(void)
         {
             for (int index = 0; index < 4; index++)
             {
-                mc_set_pwm_value(index, 0); // 停止
+                pwm_set_value(index, 0); // 停止
                 Motion_control_data_save.Motion_control_dir[index] = 0;//方向设为0
             }
             break;//跳出循环
@@ -718,7 +622,7 @@ static void mc_get_motor_dir(void)
                 int angle_dis = M5600_angle_dis(s_as6500_driver.raw_angle[index], last_angle[index]);
                 if (abs(angle_dis) > 163) // 移动超过1mm
                 {
-                    mc_set_pwm_value(index, 0); // 停止
+                    pwm_set_value(index, 0); // 停止
                     if (angle_dis < 0)
                     {
                         dir[index] = 1;
@@ -748,7 +652,8 @@ static void mc_get_motor_dir(void)
 
 static void mc_motor_ctrl_init(void)
 {
-    mc_pwm_bsp_init();
+    /* 初始化PWM信号发生器，用于控制电机转速 */
+    pwm_bsp_init();
     /* 初始化AS5600磁编码器通信接口 */
     /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
     /* 原理图中通道编号1/2/3/4分别对应代码中的数组索引3/2/1/0 */
@@ -762,7 +667,7 @@ static void mc_motor_ctrl_init(void)
     mc_get_motor_dir();
     for (int index = 0; index < 4; index++)
     {
-        mc_set_pwm_value(index, 0);
+        pwm_set_value(index, 0);
         s_motor_controller[index].set_pwm_zero(500);
         s_motor_controller[index].dir = Motion_control_data_save.Motion_control_dir[index];
     }
