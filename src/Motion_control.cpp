@@ -29,6 +29,9 @@ enum filament_motion_enum
 //===========================================================//
 static void mc_fliament_online_state_update(void);
 static void mc_set_pwm_value(uint8_t CHx,int PWM);
+static void mc_get_motor_dir(void);
+static void mc_motor_ctrl_init(void);
+static void mc_pwm_bsp_init(void);
 
 //===========================================================//
 //= Class declare.                                          =//
@@ -580,7 +583,7 @@ void mc_ticks_handler(int error)
     }
 }
 
-void MC_PWM_init()
+static void mc_pwm_bsp_init(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure;
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_GPIOB, ENABLE);
@@ -652,7 +655,8 @@ int M5600_angle_dis(int16_t angle1, int16_t angle2)
     }
     return cir_E;
 }
-void MOTOR_get_dir()
+
+static void mc_get_motor_dir(void)
 {
     int dir[4] = {0, 0, 0, 0};
     bool done = false;
@@ -672,7 +676,7 @@ void MOTOR_get_dir()
         last_angle[index] = s_as6500_driver.raw_angle[index];                  // init angle
         dir[index] = Motion_control_data_save.Motion_control_dir[index]; // init dir data
     }
-    bool need_test = false; // 是否需要检测
+
     bool need_save = false; // 是否需要更新状态
     for (int index = 0; index < 4; index++)
     {
@@ -681,7 +685,6 @@ void MOTOR_get_dir()
             if (Motion_control_data_save.Motion_control_dir[index] == 0) // 之前测试结果为0，需要测试
             {
                 mc_set_pwm_value(index, 1000); // 打开电机
-                need_test = true;                    // 设置需要测试
                 need_save = true;                    // 有状态更新
             }
         }
@@ -742,9 +745,10 @@ void MOTOR_get_dir()
         Motion_control_save();//数据保存
     }
 }
-void MOTOR_init()
+
+static void mc_motor_ctrl_init(void)
 {
-    MC_PWM_init();
+    mc_pwm_bsp_init();
     /* 初始化AS5600磁编码器通信接口 */
     /* 注意，原理图中对应的通道索引与程序中的索引是反的。 */
     /* 原理图中通道编号1/2/3/4分别对应代码中的数组索引3/2/1/0 */
@@ -755,7 +759,7 @@ void MOTOR_init()
         as5600_distance_save[i] = s_as6500_driver.raw_angle[i];
     }
 
-    MOTOR_get_dir();
+    mc_get_motor_dir();
     for (int index = 0; index < 4; index++)
     {
         mc_set_pwm_value(index, 0);
@@ -764,11 +768,11 @@ void MOTOR_init()
     }
 }
 
-void mc_init()
+void mc_init(void)
 {
     MC_PULL_key_init();
     MC_ONLINE_key_init();
-    MOTOR_init();
+    mc_motor_ctrl_init();
     for (int i = 0; i < 4; i++)
     {
         filament_now_position[i] = filament_idle;
